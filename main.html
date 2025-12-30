@@ -1,0 +1,3912 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Roaring's Whisper Server Filter</title>
+
+  <!-- Tesseract.js (browser OCR) -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+
+  <style>
+    :root {
+      --bg: #0b0d10;
+      --surface: #17191d;
+      --surface2: #1f2126;
+      --surface3: #2a2d33;
+      --text: #ebf0f5;
+      --muted: #b9c0cd;
+      --muted2: #8f96a3;
+      --border: rgba(68, 72, 80, .55);
+      --border2: rgba(68, 72, 80, .35);
+      --orange: #ffa05a;
+      --orange2: #ffbe78;
+      --radius: 14px;
+      --pad: 14px;
+      --ms-fast: 120ms;
+      --ms: 200ms;
+      --ms-slow: 280ms;
+      --shadow: 0 10px 30px rgba(0, 0, 0, .35);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      :root {
+        --ms-fast: 0ms;
+        --ms: 0ms;
+        --ms-slow: 0ms;
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      height: 100%;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+    }
+
+    .wrap {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 14px;
+    }
+
+    .panel {
+      background: rgba(0, 0, 0, .10);
+      border: 1px solid var(--border2);
+      border-radius: var(--radius);
+      padding: 14px;
+    }
+
+    .topbar {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+
+    .brand {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+    }
+
+    .dot {
+      width: 18px;
+      height: 18px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--surface3);
+      position: relative;
+      flex: 0 0 auto;
+      margin-top: 3px;
+    }
+
+    .dot::after {
+      content: "";
+      position: absolute;
+      inset: 4px;
+      border-radius: 4px;
+      background: var(--orange);
+      opacity: .92;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 17px;
+      letter-spacing: .2px;
+    }
+
+    .sub {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.3;
+      max-width: 860px;
+    }
+
+    .rightNote {
+      color: var(--muted2);
+      font-size: 12px;
+      line-height: 1.25;
+      text-align: right;
+      opacity: .9;
+      padding-top: 2px;
+      white-space: nowrap;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1.05fr .95fr;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    @media (max-width: 980px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      .rightNote {
+        text-align: left;
+        white-space: normal;
+      }
+    }
+
+    .card {
+      background: rgba(0, 0, 0, .10);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .cardHead {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px var(--pad);
+    }
+
+    .cardTitle {
+      margin: 0;
+      font-size: 15px;
+      position: relative;
+      padding-left: 24px;
+    }
+
+    .cardTitle::before {
+      content: "";
+      width: 16px;
+      height: 16px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--surface3);
+      position: absolute;
+      left: 0;
+      top: 50%;
+      transform: translateY(-50%);
+    }
+
+    .underline {
+      height: 2px;
+      background: var(--orange);
+      opacity: .92;
+    }
+
+    .cardBody {
+      padding: var(--pad);
+    }
+
+    label {
+      display: block;
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 6px;
+      letter-spacing: .1px;
+    }
+
+    input,
+    select,
+    textarea,
+    button {
+      font: inherit;
+      color: var(--text);
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      outline: none;
+    }
+
+    input,
+    select {
+      height: 32px;
+      padding: 0 10px;
+      width: 100%;
+    }
+
+    textarea {
+      width: 100%;
+      padding: 10px;
+      resize: vertical;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      line-height: 1.35;
+    }
+
+    .mini {
+      font-size: 12px;
+      color: var(--muted2);
+      opacity: .98;
+      line-height: 1.25;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(0, 0, 0, .18);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .pillOk {
+      border-color: rgba(255, 160, 90, .70);
+    }
+
+    .pillWarn {
+      border-color: rgba(255, 190, 120, .65);
+    }
+
+    .pillDim {
+      opacity: .78;
+    }
+
+    .pip {
+      width: 8px;
+      height: 8px;
+      border-radius: 99px;
+      background: var(--border);
+    }
+
+    .pipOk {
+      background: var(--orange);
+    }
+
+    .pipWarn {
+      background: var(--orange2);
+    }
+
+    .btnRow {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    @media (max-width: 980px) {
+      .btnRow {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+
+    .btn {
+      height: 34px;
+      cursor: pointer;
+      background: rgba(0, 0, 0, .10);
+      transition: background var(--ms-fast), transform var(--ms-fast);
+      position: relative;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    .btn:hover {
+      background: rgba(255, 255, 255, .06);
+    }
+
+    .btn:active {
+      transform: translateY(1px);
+    }
+
+    .btnSmall {
+      height: 30px;
+      border-radius: 10px;
+      font-size: 12px;
+    }
+
+    .pulse {
+      position: absolute;
+      inset: 0;
+      background: var(--orange);
+      opacity: .24;
+      transform: translateX(-120%);
+      transition: transform var(--ms), opacity var(--ms);
+      pointer-events: none;
+    }
+
+    .btn.pulsing .pulse {
+      transform: translateX(0%);
+      opacity: .18;
+    }
+
+    details {
+      border: 1px solid rgba(68, 72, 80, .35);
+      border-radius: 12px;
+      padding: 10px;
+      background: rgba(0, 0, 0, .10);
+    }
+
+    details>summary {
+      cursor: pointer;
+      color: var(--text);
+      font-size: 13px;
+      user-select: none;
+      list-style: none;
+    }
+
+    details>summary::-webkit-details-marker {
+      display: none;
+    }
+
+    details[open]>summary {
+      margin-bottom: 10px;
+    }
+
+    .row4 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .row3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .row2 {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .row1 {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    @media (max-width: 980px) {
+      .row4 {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .row3 {
+        grid-template-columns: 1fr;
+      }
+
+      .row2 {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* OCR */
+    .ocrWrap {
+      border-radius: 12px;
+      border: 1px dashed rgba(255, 160, 90, .55);
+      background: rgba(0, 0, 0, .12);
+      padding: 12px;
+    }
+
+    .ocrRow {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+    }
+
+    .dropZone {
+      margin-top: 10px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: rgba(0, 0, 0, .10);
+      padding: 10px;
+      min-height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      user-select: none;
+      transition: background var(--ms-fast), border-color var(--ms-fast);
+    }
+
+    .dropZone.dragOn {
+      background: rgba(255, 255, 255, .06);
+      border-color: rgba(255, 160, 90, .55);
+    }
+
+    .ocrPreview {
+      margin-top: 10px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .ocrImg {
+      width: 100%;
+      max-height: 210px;
+      object-fit: contain;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: #0b0d10;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    /* Top picks */
+    .filterRow {
+      display: grid;
+      grid-template-columns: 1fr 220px;
+      gap: 10px;
+      align-items: end;
+      margin-bottom: 10px;
+    }
+
+    @media (max-width: 980px) {
+      .filterRow {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .statusLine {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin: 6px 0 10px 0;
+    }
+
+    .picks {
+      display: grid;
+      gap: 10px;
+    }
+
+    .pick {
+      background: rgba(0, 0, 0, .12);
+      border: 1px solid var(--border2);
+      border-radius: 12px;
+      padding: 10px;
+      transition: background var(--ms-fast), border-color var(--ms-fast);
+      cursor: pointer;
+    }
+
+    .pick:hover {
+      background: rgba(255, 255, 255, .05);
+      border-color: rgba(255, 160, 90, .25);
+    }
+
+    .pickTop {
+      display: flex;
+      gap: 10px;
+      align-items: stretch;
+    }
+
+    .rail {
+      width: 3px;
+      border-radius: 99px;
+      background: var(--orange);
+      opacity: .9;
+    }
+
+    .rail.dim {
+      opacity: .35;
+      background: var(--border);
+    }
+
+    .pickMain {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .pickTitleLine {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      margin: 0 0 6px 0;
+      font-size: 14px;
+    }
+
+    .pickMeta {
+      display: grid;
+      gap: 4px;
+      margin-top: 2px;
+    }
+
+    .kv {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.2;
+    }
+
+    .kv b {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .moreDetails {
+      margin-top: 8px;
+      border-top: 1px solid rgba(68, 72, 80, .25);
+      padding-top: 8px;
+      display: none;
+    }
+
+    .pick.open .moreDetails {
+      display: block;
+    }
+
+    .pickToggle {
+      margin-left: auto;
+      opacity: .8;
+      font-size: 12px;
+      border: 1px solid rgba(68, 72, 80, .35);
+      background: rgba(0, 0, 0, .10);
+      padding: 2px 8px;
+      border-radius: 999px;
+      user-select: none;
+    }
+
+    /* Whisper toggle */
+    .wToggle {
+      height: 26px;
+      min-width: 34px;
+      padding: 0 10px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(0, 0, 0, .14);
+      cursor: pointer;
+      user-select: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      font-size: 12px;
+      line-height: 1;
+      transition: background var(--ms-fast), transform var(--ms-fast), border-color var(--ms-fast), opacity var(--ms-fast);
+      z-index: 2;
+    }
+
+    .wToggle:hover {
+      background: rgba(0, 0, 0, .20);
+    }
+
+    .wToggle:active {
+      transform: translateY(1px);
+    }
+
+    .wToggle.unk {
+      opacity: .88;
+    }
+
+    .wToggle.seen {
+      border-color: rgba(255, 160, 90, .80);
+    }
+
+    .wToggle.no {
+      border-color: rgba(255, 190, 120, .70);
+      opacity: .98;
+    }
+
+    .wToggleSmall {
+      height: 24px;
+      min-width: 30px;
+      padding: 0 8px;
+      font-size: 12px;
+    }
+
+    /* Table */
+    .tableWrap {
+      border-radius: 12px;
+      overflow: auto;
+      border: 1px solid var(--border);
+      background: rgba(0, 0, 0, .10);
+      max-height: 420px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--orange) transparent;
+    }
+
+    .tableWrap::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+
+    .tableWrap::-webkit-scrollbar-thumb {
+      background: var(--orange);
+      border-radius: 99px;
+    }
+
+    .tableWrap::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 1100px;
+    }
+
+    th,
+    td {
+      text-align: left;
+      padding: 10px;
+      border-bottom: 1px solid rgba(68, 72, 80, .28);
+      vertical-align: top;
+      font-size: 13px;
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      background: rgba(0, 0, 0, .22);
+      color: var(--muted);
+      z-index: 1;
+      border-bottom: 1px solid rgba(68, 72, 80, .55);
+      backdrop-filter: blur(6px);
+    }
+
+    tr.rowClick:hover td {
+      background: rgba(255, 255, 255, .04);
+    }
+
+    .clickHint {
+      color: var(--muted2);
+      font-size: 12px;
+      margin-top: 8px;
+    }
+
+    /* Drawer */
+    .backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, .60);
+      display: grid;
+      place-items: end;
+      z-index: 50;
+    }
+
+    .drawer {
+      width: min(860px, 100vw);
+      max-height: 92vh;
+      background: rgba(12, 13, 16, .96);
+      border: 1px solid rgba(255, 255, 255, .10);
+      border-radius: 16px 16px 0 0;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      backdrop-filter: blur(10px);
+    }
+
+    .drawerHead {
+      padding: 12px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, .08);
+    }
+
+    .drawerTitle {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .drawerTitle .t1 {
+      font-size: 14px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .drawerTitle .t2 {
+      font-size: 12px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .drawerBody {
+      padding: 12px 14px;
+      overflow: auto;
+    }
+
+    .updatesList {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .uItem {
+      border: 1px solid rgba(68, 72, 80, .35);
+      border-radius: 12px;
+      padding: 10px;
+      background: rgba(0, 0, 0, .14);
+    }
+
+    .uTop {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .uTop .when {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .uTop .src {
+      color: var(--muted2);
+      font-size: 12px;
+    }
+
+    .uBody {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.25;
+      white-space: pre-wrap;
+    }
+
+    .drawerActions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .kbd {
+      border: 1px solid rgba(68, 72, 80, .45);
+      background: rgba(0, 0, 0, .12);
+      padding: 2px 6px;
+      border-radius: 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .danger {
+      border-color: rgba(255, 190, 120, .55) !important;
+    }
+  </style>
+</head>
+
+<body>
+  <!-- 29/12/2025-9 -->
+  <div class="wrap">
+    <div class="panel">
+      <div class="topbar">
+        <div class="brand">
+          <div class="dot" aria-hidden="true"></div>
+          <div>
+            <h1>Roaring’s Whisper Server Filter</h1>
+            <div class="sub">
+              Ctrl+V a server-list screenshot → auto OCR → it tells you what to check. Click ☐/✅/❌ to confirm Whisper.
+              Options + data tools stay collapsed unless you need them.
+            </div>
+          </div>
+        </div>
+        <div class="rightNote mono">
+          build 29/12/2025-9
+        </div>
+      </div>
+
+      <div class="grid">
+        <!-- LEFT: Capture -->
+        <div class="card">
+          <div class="cardHead">
+            <h2 class="cardTitle">Capture</h2>
+            <span class="pill pillDim mono" id="buildPill">v9</span>
+          </div>
+          <div class="underline"></div>
+          <div class="cardBody">
+            <div class="ocrWrap">
+              <div class="ocrRow">
+                <div>
+                  <div class="mono" style="font-size:14px;">Drop / paste screenshot (AUTO OCR)</div>
+                  <div class="mini">Ctrl+V image (or drag-drop). It will auto-extract rows and update Top Picks.</div>
+                </div>
+                <div class="pill mono" id="ocrPill">OCR: idle</div>
+              </div>
+
+              <div class="dropZone" id="dropZone" tabindex="0" role="button" aria-label="Drop image here">
+                <div class="mini">
+                  <div class="mono">Drop image here (or Ctrl+V)</div>
+                  <div>Assumes screenshot was taken ~<span id="delayLabel">15</span>s before paste.</div>
+                </div>
+                <div class="pill mono" id="ocrRowsPill">0 rows</div>
+              </div>
+
+              <input id="fileInput" class="hidden" type="file" accept="image/*" />
+
+              <div class="ocrPreview">
+                <img id="ocrImg" class="ocrImg hidden" alt="OCR preview" />
+                <div class="row3" style="margin-bottom:0;">
+                  <button class="btn" id="chooseBtn" type="button"><span class="pulse"></span>Choose image</button>
+                  <button class="btn" id="ocrBtn" type="button"><span class="pulse"></span>OCR last image</button>
+                  <button class="btn" id="ocrClearBtn" type="button"><span class="pulse"></span>Clear image</button>
+                </div>
+                <div class="mini mono" id="ocrMsg"></div>
+              </div>
+            </div>
+
+            <div style="margin-top:10px;">
+              <label>Paste server rows / OCR dumps (small)</label>
+              <textarea id="inputBox" style="min-height:120px;" placeholder="You can paste messy OCR here too. The tool only needs: server id + uptime.
+Example:
+Premium #5 [Map: Estonian Border] NA 6/30 01:23:28 90:40:05 0.525"></textarea>
+            </div>
+
+            <div class="btnRow">
+              <button class="btn" id="runBtn" type="button"><span class="pulse"></span>Run</button>
+              <button class="btn" id="copyCheckBtn" type="button"><span class="pulse"></span>Copy CHECK</button>
+              <button class="btn" id="copyPicksBtn" type="button"><span class="pulse"></span>Copy Top Picks</button>
+              <button class="btn" id="copyDebugBtn" type="button"><span class="pulse"></span>Copy Debug</button>
+            </div>
+
+            <!-- OPTIONS (collapsed by default) -->
+            <details id="optionsDetails" style="margin-top:10px;">
+              <summary>
+                <span class="mono" id="optionsSummary">Options (default)</span>
+                <span class="mini" style="margin-left:8px;">(open only if you need to tweak)</span>
+              </summary>
+
+              <div class="row4" style="margin-top:10px;">
+                <div>
+                  <label>Period (hours)</label>
+                  <input id="periodHours" type="number" min="1" step="1" value="6" />
+                </div>
+                <div>
+                  <label>Jitter after start (min)</label>
+                  <input id="jitterMax" type="number" min="0" step="1" value="60" />
+                </div>
+                <div>
+                  <label>Prep min (min before start)</label>
+                  <input id="winMin" type="number" min="0" step="1" value="5" />
+                </div>
+                <div>
+                  <label>Prep max (min before start)</label>
+                  <input id="winMax" type="number" min="0" step="1" value="15" />
+                </div>
+              </div>
+
+              <div class="row3">
+                <div>
+                  <label>Window model</label>
+                  <select id="modelMode">
+                    <option value="auto" selected>Auto (anchors → clock → uptime)</option>
+                    <option value="clock">Clock schedule only</option>
+                    <option value="uptime">Uptime schedule only</option>
+                    <option value="anchors">Anchors only</option>
+                  </select>
+                  <div class="mini">Leave Auto unless you’re testing something.</div>
+                </div>
+
+                <div>
+                  <label>Clock anchor time</label>
+                  <input id="clockAnchor" type="text" value="19:01" placeholder="HH:MM (ex: 19:01)" />
+                  <div class="mini">If spawn is “around 7PM”, set 19:00–19:05.</div>
+                </div>
+
+                <div>
+                  <label>Require night for CHECK</label>
+                  <select id="requireNight">
+                    <option value="true" selected>Yes</option>
+                    <option value="false">No</option>
+                  </select>
+                  <div class="mini">If Yes, CHECK only happens during the night window.</div>
+                </div>
+              </div>
+
+              <div class="row3">
+                <div>
+                  <label>Night window (server clock)</label>
+                  <input id="nightRange" type="text" value="20:00-06:00" />
+                  <div class="mini">Format: HH:MM-HH:MM</div>
+                </div>
+
+                <div>
+                  <label>Sort</label>
+                  <select id="sortMode">
+                    <option value="closest" selected>Closest to window</option>
+                    <option value="soonestStart">Soonest window start</option>
+                    <option value="input">Input order</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label>Top picks count</label>
+                  <select id="picksCount">
+                    <option value="3" selected>3</option>
+                    <option value="5">5</option>
+                    <option value="8">8</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="row3">
+                <div>
+                  <label>Omit City-13</label>
+                  <select id="omitCity13">
+                    <option value="true" selected>Yes</option>
+                    <option value="false">No</option>
+                  </select>
+                </div>
+                <div>
+                  <label>Omit x/12 servers</label>
+                  <select id="omitMax12">
+                    <option value="true" selected>Yes</option>
+                    <option value="false">No</option>
+                  </select>
+                </div>
+                <div>
+                  <label>Show</label>
+                  <select id="showMode">
+                    <option value="all" selected>All</option>
+                    <option value="onlyCheck">Only CHECK</option>
+                    <option value="onlyNight">Only Night</option>
+                    <option value="checkAndNight">CHECK + Night</option>
+                  </select>
+                </div>
+              </div>
+
+              <details id="captureDetails" style="margin-top:10px;">
+                <summary><span class="mono">Human timing</span> (screenshot → alt+tab → paste)</summary>
+
+                <div class="row3" style="margin-top:10px;">
+                  <div>
+                    <label>Assume screenshot delay (sec)</label>
+                    <input id="captureDelaySec" type="number" min="0" step="1" value="15" />
+                    <div class="mini">Used to backdate “observed time” for live ticking.</div>
+                  </div>
+
+                  <div>
+                    <label>Auto-set capture time on OCR</label>
+                    <select id="autoSetCaptureTime">
+                      <option value="true" selected>Yes</option>
+                      <option value="false">No</option>
+                    </select>
+                    <div class="mini">If Yes, image paste sets capture time automatically.</div>
+                  </div>
+
+                  <div>
+                    <label>Screenshot/capture time (local)</label>
+                    <input id="captureTime" type="datetime-local" />
+                    <div class="mini">Override if you know the exact capture time.</div>
+                  </div>
+                </div>
+              </details>
+
+              <details id="tzDetails" style="margin-top:10px;">
+                <summary><span class="mono">Timezone inference</span> (advanced)</summary>
+
+                <div class="row3" style="margin-top:10px;">
+                  <div>
+                    <label>Clock anchor base</label>
+                    <select id="clockBase">
+                      <option value="serverLocal" selected>Server clock is local</option>
+                      <option value="pacific">Anchor is Pacific (PT)</option>
+                      <option value="central">Anchor is Central (CT)</option>
+                      <option value="eastern">Anchor is Eastern (ET)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label>Timezone match tolerance (min)</label>
+                    <input id="tzToleranceMin" type="number" min="0" step="1" value="6" />
+                    <div class="mini">If server clock differs by more than this → tz becomes “unknown”.</div>
+                  </div>
+
+                  <div>
+                    <label>Filter (table + picks)</label>
+                    <input id="filterBox" type="text" placeholder="server id, map, NA, 6/30, etc" />
+                  </div>
+                </div>
+
+                <div class="mini">
+                  Only needed if your anchor time is fixed to PT/CT/ET instead of “server local”.
+                </div>
+              </details>
+            </details>
+
+            <!-- ANCHORS (cleaned + clearer) -->
+            <details id="anchorsDetails" style="margin-top:10px;">
+              <summary><span class="mono">Anchors</span> (optional “I saw Whisper” confirmations)</summary>
+
+              <div class="mini">
+                If you actually SEE Whisper on a server, anchoring makes future “CHECK” predictions sharper.
+                Easiest way: click a server (pick or table) → use the buttons here (or in the drawer).
+              </div>
+
+              <div class="row2" style="margin-top:10px;">
+                <div>
+                  <label>Active server</label>
+                  <div class="pill mono" id="activeServerPill">none</div>
+                </div>
+                <div>
+                  <label>Anchor status</label>
+                  <div class="pill mono pillDim" id="activeAnchorPill">—</div>
+                </div>
+              </div>
+
+              <div class="row3" style="margin-bottom:0;">
+                <button class="btn" id="anchorSawBtn" type="button"><span class="pulse"></span>I SAW Whisper ✅</button>
+                <button class="btn" id="anchorNoBtn" type="button"><span class="pulse"></span>NO Whisper ❌</button>
+                <button class="btn" id="anchorClearBtn" type="button"><span class="pulse"></span>Clear anchor</button>
+              </div>
+
+              <details id="anchorsAdvanced" style="margin-top:10px;">
+                <summary><span class="mono">Advanced</span> (copy / clear all)</summary>
+                <div class="row3" style="margin-top:10px; margin-bottom:0;">
+                  <button class="btn btnSmall" id="anchorCopyBtn" type="button"><span class="pulse"></span>Copy anchors</button>
+                  <button class="btn btnSmall danger" id="anchorClearAllBtn" type="button"><span class="pulse"></span>Clear ALL anchors</button>
+                  <button class="btn btnSmall" id="anchorMsgBtn" type="button"><span class="pulse"></span>Show anchor info</button>
+                </div>
+                <div class="mini mono" id="anchorMsg" style="margin-top:10px;"></div>
+              </details>
+            </details>
+
+            <!-- DATA (export/import + reset) -->
+            <details id="dataDetails" style="margin-top:10px;">
+              <summary><span class="mono">Data</span> (export / import / reset)</summary>
+
+              <div class="mini">
+                Export/Import moves: servers + updates + anchors + settings.
+              </div>
+
+              <div class="row3" style="margin-top:10px;">
+                <button class="btn" id="exportBtn" type="button"><span class="pulse"></span>Export JSON</button>
+
+                <div>
+                  <label>Import mode</label>
+                  <select id="importMode">
+                    <option value="replace" selected>Replace (wipe then import)</option>
+                    <option value="merge">Merge (keep existing + add)</option>
+                  </select>
+                </div>
+
+                <button class="btn" id="importBtn" type="button"><span class="pulse"></span>Import JSON</button>
+              </div>
+
+              <input id="importFile" class="hidden" type="file" accept="application/json,.json" />
+
+              <div class="row2" style="margin-top:10px; margin-bottom:0;">
+                <button class="btn danger" id="resetBtn" type="button"><span class="pulse"></span>Reset ALL data</button>
+                <button class="btn" id="clearUiBtn" type="button"><span class="pulse"></span>Clear input only</button>
+              </div>
+
+              <div class="mini mono" id="dataMsg" style="margin-top:10px;"></div>
+            </details>
+
+            <div class="clickHint">Tip: click any pick or table row to open the updates drawer.</div>
+          </div>
+        </div>
+
+        <!-- RIGHT: Top picks -->
+        <div class="card">
+          <div class="cardHead">
+            <h2 class="cardTitle">Top picks</h2>
+            <span class="pill pillDim mono" id="rowsPill">0 rows</span>
+          </div>
+          <div class="underline"></div>
+          <div class="cardBody">
+            <div class="filterRow">
+              <div>
+                <label>Quick filter</label>
+                <input id="quickFilter" type="text" placeholder="type to filter picks + table" />
+              </div>
+              <div>
+                <label>Copy helpers</label>
+                <div class="row2" style="gap:10px; margin-bottom:0;">
+                  <button class="btn btnSmall" id="copyCheckMini" type="button"><span class="pulse"></span>Copy CHECK</button>
+                  <button class="btn btnSmall" id="copyPicksMini" type="button"><span class="pulse"></span>Copy Picks</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="statusLine" id="statusLine">
+              <span class="pill pillDim"><span class="pip"></span>Paste/OCR to begin</span>
+            </div>
+
+            <div class="mini" style="margin-bottom:8px;">
+              CHECK servers are what you should join to verify Whisper. Click ☐/✅/❌ on the row as you confirm.
+            </div>
+
+            <div class="picks" id="picks"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- TABLE -->
+      <div class="card" style="margin-top:10px;">
+        <div class="cardHead">
+          <h2 class="cardTitle">All servers</h2>
+          <span class="pill pillDim mono" id="tablePill">—</span>
+        </div>
+        <div class="underline"></div>
+        <div class="cardBody">
+          <div class="tableWrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Server</th>
+                  <th>Region</th>
+                  <th>Players</th>
+                  <th>Clock</th>
+                  <th>Uptime</th>
+                  <th>Window</th>
+                  <th>Model</th>
+                  <th>Timezone</th>
+                  <th>Whisper</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="tbody">
+                <tr>
+                  <td colspan="10" class="mini">No results yet.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="clickHint">Click a row to open Updates + quick actions.</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Updates drawer -->
+  <div class="backdrop hidden" id="drawerBackdrop" aria-hidden="true">
+    <div class="drawer" role="dialog" aria-modal="true" aria-label="Server updates">
+      <div class="drawerHead">
+        <div class="drawerTitle">
+          <div class="t1 mono" id="drawerTitle">—</div>
+          <div class="t2 mono" id="drawerSub">—</div>
+        </div>
+        <div class="drawerActions">
+          <span class="kbd">Esc</span>
+          <button class="btn btnSmall" id="drawerCloseBtn" type="button"><span class="pulse"></span>Close</button>
+        </div>
+      </div>
+      <div class="drawerHead" style="border-top:1px solid rgba(255,255,255,.06); border-bottom:1px solid rgba(255,255,255,.08);">
+        <div class="drawerActions" style="justify-content: space-between; width:100%;">
+          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+            <button class="btn btnSmall" id="drawerSawBtn" type="button"><span class="pulse"></span>I SAW Whisper ✅</button>
+            <button class="btn btnSmall" id="drawerNoBtn" type="button"><span class="pulse"></span>NO Whisper ❌</button>
+            <button class="btn btnSmall" id="drawerToggleBtn" type="button"><span class="pulse"></span>Cycle ☐/✅/❌</button>
+            <button class="btn btnSmall" id="drawerClearAnchorBtn" type="button"><span class="pulse"></span>Clear anchor</button>
+          </div>
+          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+            <button class="btn btnSmall" id="drawerCopyDebugBtn" type="button"><span class="pulse"></span>Copy debug</button>
+          </div>
+        </div>
+      </div>
+      <div class="drawerBody">
+        <div class="statusLine" id="drawerBadges"></div>
+        <div class="mini mono" id="drawerInfo"></div>
+
+        <div style="margin-top:10px;" class="mono mini">Last updates</div>
+        <div class="updatesList" id="updatesList"></div>
+        <div class="mini" id="updatesHint" style="margin-top:10px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /*
+      29/12/2025-9
+      Roaring's Whisper Server Filter — single-file tool (v9 UI overhaul)
+
+      Summary (what this version does):
+      - UI is compact: end-user mostly sees (1) OCR drop/paste, (2) small rows box, (3) Top Picks, (4) All servers.
+      - Options/Data/Anchors are collapsed by default.
+      - Human timing hardened: default assumes screenshot occurred ~15s before paste; auto-sets capture time on OCR.
+      - Persistent DB (IndexedDB): servers + per-server updates history (ingests, toggles, anchor saves, reset detections).
+      - Live ticking: server clocks/uptimes tick forward from capture/observed time.
+      - Window models: anchors → clock → uptime (Auto) or forced selection.
+      - Whisper quick toggles: ☐/✅/❌; and “I SAW Whisper / NO Whisper” anchor helpers.
+      - Updates drawer: click a server to see its last ~50 updates + quick actions.
+      - Export/Import: one JSON contains servers + updates + anchors + settings; import can replace or merge.
+      - Debug dump: shorthand clipboard string to paste back into chat for fast troubleshooting.
+    */
+    (function() {
+      "use strict";
+      // -----------------------------
+      // DOM
+      // -----------------------------
+      const $ = (id) => document.getElementById(id);
+      // Core inputs
+      const inputBoxEl = $("inputBox");
+      const runBtn = $("runBtn");
+      const copyCheckBtn = $("copyCheckBtn");
+      const copyPicksBtn = $("copyPicksBtn");
+      const copyDebugBtn = $("copyDebugBtn");
+      const copyCheckMini = $("copyCheckMini");
+      const copyPicksMini = $("copyPicksMini");
+      // Options
+      const optionsSummaryEl = $("optionsSummary");
+      const periodHoursEl = $("periodHours");
+      const jitterMaxEl = $("jitterMax");
+      const winMinEl = $("winMin");
+      const winMaxEl = $("winMax");
+      const modelModeEl = $("modelMode");
+      const clockAnchorEl = $("clockAnchor");
+      const clockBaseEl = $("clockBase");
+      const nightRangeEl = $("nightRange");
+      const requireNightEl = $("requireNight");
+      const showModeEl = $("showMode");
+      const sortModeEl = $("sortMode");
+      const omitCity13El = $("omitCity13");
+      const omitMax12El = $("omitMax12");
+      const picksCountEl = $("picksCount");
+      // Human timing
+      const captureDelaySecEl = $("captureDelaySec");
+      const autoSetCaptureTimeEl = $("autoSetCaptureTime");
+      const captureTimeEl = $("captureTime");
+      const delayLabelEl = $("delayLabel");
+      // TZ
+      const tzToleranceEl = $("tzToleranceMin");
+      // Filter
+      const quickFilterEl = $("quickFilter");
+      const filterBoxEl = $("filterBox");
+      // Readout
+      const statusLineEl = $("statusLine");
+      const picksEl = $("picks");
+      const tbodyEl = $("tbody");
+      const rowsPill = $("rowsPill");
+      const tablePill = $("tablePill");
+      // OCR
+      const dropZone = $("dropZone");
+      const fileInput = $("fileInput");
+      const chooseBtn = $("chooseBtn");
+      const ocrBtn = $("ocrBtn");
+      const ocrClearBtn = $("ocrClearBtn");
+      const ocrImg = $("ocrImg");
+      const ocrPill = $("ocrPill");
+      const ocrRowsPill = $("ocrRowsPill");
+      const ocrMsg = $("ocrMsg");
+      // Anchors panel
+      const anchorsDetails = $("anchorsDetails");
+      const activeServerPill = $("activeServerPill");
+      const activeAnchorPill = $("activeAnchorPill");
+      const anchorSawBtn = $("anchorSawBtn");
+      const anchorNoBtn = $("anchorNoBtn");
+      const anchorClearBtn = $("anchorClearBtn");
+      const anchorCopyBtn = $("anchorCopyBtn");
+      const anchorClearAllBtn = $("anchorClearAllBtn");
+      const anchorMsgBtn = $("anchorMsgBtn");
+      const anchorMsgEl = $("anchorMsg");
+      // Data
+      const exportBtn = $("exportBtn");
+      const importBtn = $("importBtn");
+      const importFile = $("importFile");
+      const importModeEl = $("importMode");
+      const resetBtn = $("resetBtn");
+      const clearUiBtn = $("clearUiBtn");
+      const dataMsgEl = $("dataMsg");
+      // Drawer
+      const drawerBackdrop = $("drawerBackdrop");
+      const drawerCloseBtn = $("drawerCloseBtn");
+      const drawerTitleEl = $("drawerTitle");
+      const drawerSubEl = $("drawerSub");
+      const drawerBadgesEl = $("drawerBadges");
+      const drawerInfoEl = $("drawerInfo");
+      const updatesListEl = $("updatesList");
+      const updatesHintEl = $("updatesHint");
+      const drawerSawBtn = $("drawerSawBtn");
+      const drawerNoBtn = $("drawerNoBtn");
+      const drawerToggleBtn = $("drawerToggleBtn");
+      const drawerClearAnchorBtn = $("drawerClearAnchorBtn");
+      const drawerCopyDebugBtn = $("drawerCopyDebugBtn");
+      // -----------------------------
+      // Storage keys
+      // -----------------------------
+      const LS_STATE = "roaring_whisper_filter_state_v9";
+      const LS_STATE_OLD_V8 = "roaring_whisper_filter_state_v8";
+      const LS_ANCHOR = "roaring_whisper_filter_anchors_v2";
+      // -----------------------------
+      // IndexedDB (servers + updates)
+      // -----------------------------
+      const DB_NAME = "roaring_whisper_filter_db";
+      const DB_VERSION = 2; // v9 adds compound index for fast per-key updates
+      const STORE_SERVERS = "servers";
+      const STORE_UPDATES = "updates";
+      let dbp = null;
+      let dbReady = false;
+      // Server cache (source of truth for rendering)
+      const serverCache = new Map(); // key -> record
+      // Active server selection
+      let activeKey = "";
+      // Ingest control
+      let lastIngestSig = "";
+      let nextIngestSource = ""; // "ocr" or "input" (set when OCR injects)
+      let lastOcrResult = {
+        rows: 0,
+        atMs: 0,
+        msg: ""
+      };
+      // Render caches
+      let lastRenderByKey = new Map();
+      let lastRenderRows = [];
+      let liveTimer = 0;
+      // State write throttling
+      let lastStateSig = "";
+      // -----------------------------
+      // Utilities
+      // -----------------------------
+      function pulse(btn) {
+        if (!btn) return;
+        btn.classList.add("pulsing");
+        setTimeout(() => btn.classList.remove("pulsing"), 220);
+      }
+
+      function esc(s) {
+        return String(s)
+          .replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;").replaceAll("'", "&#039;");
+      }
+
+      function clampNum(v, a, b, fallback) {
+        const n = Number(v);
+        if (!Number.isFinite(n)) return fallback;
+        return Math.max(a, Math.min(b, n));
+      }
+
+      function mod(n, m) {
+        return ((n % m) + m) % m;
+      }
+
+      function dur(sec) {
+        sec = Math.max(0, Math.floor(sec));
+        const h = Math.floor(sec / 3600);
+        const m = Math.floor((sec % 3600) / 60);
+        const s = sec % 60;
+        if (h > 0) return `${h}h ${m}m`;
+        if (m > 0) return `${m}m ${s}s`;
+        return `${s}s`;
+      }
+
+      function secToHMS(sec) {
+        sec = Math.max(0, Math.floor(sec));
+        const h = Math.floor(sec / 3600);
+        const rem = sec % 3600;
+        const m = Math.floor(rem / 60);
+        const s = rem % 60;
+        const hh = String(h).padStart(2, "0");
+        return `${hh}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+      }
+
+      function hmsToSec(hms) {
+        return (hms.h * 3600) + (hms.m * 60) + hms.s;
+      }
+
+      function hhmmToMin(hhmm) {
+        return (hhmm.h * 60) + hhmm.m;
+      }
+
+      function circleDiffSec(aSec, bSec) {
+        const d = Math.abs(aSec - bSec);
+        return Math.min(d, 86400 - d);
+      }
+
+      function secToClockHMS(sec) {
+        sec = Math.floor(Number(sec) || 0);
+        sec = mod(sec, 86400);
+        const h = Math.floor(sec / 3600);
+        const rem = sec % 3600;
+        const m = Math.floor(rem / 60);
+        const s = rem % 60;
+        return {
+          h,
+          m,
+          s,
+          text: `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+        };
+      }
+
+      function fmtLocal(ms) {
+        const d = new Date(ms);
+        const mo = String(d.getMonth() + 1).padStart(2, "0");
+        const da = String(d.getDate()).padStart(2, "0");
+        const hh = String(d.getHours()).padStart(2, "0");
+        const mm = String(d.getMinutes()).padStart(2, "0");
+        return `${mo}/${da} ${hh}:${mm}`;
+      }
+
+      function computeLiveSnapshot(rec, nowMs) {
+        const observedAtMs = Number(rec.observedAtMs || rec.updatedAtMs || nowMs);
+        const elapsedSec = Math.max(0, Math.floor((nowMs - observedAtMs) / 1000));
+        const uptimeObs = Number(rec.uptimeSecObs);
+        const clockObs = (rec.clockSecObs == null) ? null : Number(rec.clockSecObs);
+        const uptimeLive = Number.isFinite(uptimeObs) ? (uptimeObs + elapsedSec) : null;
+        const clockLive = (clockObs == null || !Number.isFinite(clockObs)) ? null : mod(clockObs + elapsedSec, 86400);
+        return {
+          observedAtMs,
+          elapsedSec,
+          uptimeLiveSec: uptimeLive,
+          clockLiveSec: clockLive,
+          uptimeObsSec: uptimeObs,
+          clockObsSec: clockObs,
+          uptimeLiveText: (Number.isFinite(uptimeLive) ? secToHMS(uptimeLive) : ""),
+          clockLiveHMS: (clockLive != null ? secToClockHMS(clockLive) : null),
+          clockObsHMS: (clockObs != null ? secToClockHMS(clockObs) : null),
+        };
+      }
+
+      function normalizeText(raw) {
+        let t = String(raw || "");
+        t = t.replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+        t = t.replace(/(\d+)\s*[.]\s*([0-5]\d)\s*[.]\s*([0-5]\d)/g, "$1:$2:$3"); // 47.44.40
+        t = t.replace(/\b(\d+)\s+([0-5]\d)\s+([0-5]\d)\b/g, "$1:$2:$3"); // 47 44 40
+        t = t.replace(/\b(\d+)\s*[-–]\s*([0-5]\d)\s*[-–]\s*([0-5]\d)\b/g, "$1:$2:$3"); // 201-45-03
+        t = t.replace(/[·•]/g, ":");
+        t = t.replace(/[Oo]/g, "0");
+        t = t.replace(/[Il|]/g, "1");
+        return t;
+      }
+
+      function splitLines(raw) {
+        return String(raw || "")
+          .split("\n")
+          .map(s => s.trim())
+          .filter(Boolean);
+      }
+      // Simple hash (FNV-1a)
+      function fnv1a(str) {
+        str = String(str ?? "");
+        let h = 0x811c9dc5;
+        for (let i = 0; i < str.length; i++) {
+          h ^= str.charCodeAt(i);
+          h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+        }
+        return ("00000000" + h.toString(16)).slice(-8);
+      }
+      // -----------------------------
+      // IndexedDB helpers
+      // -----------------------------
+      function openDb() {
+        return new Promise((resolve) => {
+          if (!("indexedDB" in window)) return resolve(null);
+          const req = indexedDB.open(DB_NAME, DB_VERSION);
+          req.onupgradeneeded = () => {
+            const db = req.result;
+            if (!db.objectStoreNames.contains(STORE_SERVERS)) {
+              const s = db.createObjectStore(STORE_SERVERS, {
+                keyPath: "key"
+              });
+              s.createIndex("byServer", "server", {
+                unique: false
+              });
+              s.createIndex("byUpdatedAt", "updatedAtMs", {
+                unique: false
+              });
+            }
+            if (!db.objectStoreNames.contains(STORE_UPDATES)) {
+              const u = db.createObjectStore(STORE_UPDATES, {
+                keyPath: "id",
+                autoIncrement: true
+              });
+              u.createIndex("byKey", "key", {
+                unique: false
+              });
+              u.createIndex("byAt", "atMs", {
+                unique: false
+              });
+              u.createIndex("byKeyAt", ["key", "atMs"], {
+                unique: false
+              }); // v9
+            } else {
+              // add missing index on upgrade
+              const u = req.transaction.objectStore(STORE_UPDATES);
+              if (!u.indexNames.contains("byKeyAt")) {
+                u.createIndex("byKeyAt", ["key", "atMs"], {
+                  unique: false
+                });
+              }
+            }
+          };
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => resolve(null);
+        });
+      }
+
+      function idbTx(storeName, mode) {
+        return dbp.then((db) => {
+          if (!db) return null;
+          try {
+            return db.transaction(storeName, mode);
+          } catch {
+            return null;
+          }
+        });
+      }
+      async function idbAll(storeName) {
+        const tx = await idbTx(storeName, "readonly");
+        if (!tx) return [];
+        return new Promise((resolve) => {
+          try {
+            const st = tx.objectStore(storeName);
+            const rq = st.getAll();
+            rq.onsuccess = () => resolve(rq.result || []);
+            rq.onerror = () => resolve([]);
+          } catch {
+            resolve([]);
+          }
+        });
+      }
+      async function idbPut(storeName, value) {
+        const tx = await idbTx(storeName, "readwrite");
+        if (!tx) return;
+        try {
+          tx.objectStore(storeName).put(value);
+        } catch {}
+      }
+      async function idbAdd(storeName, value) {
+        const tx = await idbTx(storeName, "readwrite");
+        if (!tx) return;
+        try {
+          tx.objectStore(storeName).add(value);
+        } catch {}
+      }
+      async function idbClear(storeName) {
+        const tx = await idbTx(storeName, "readwrite");
+        if (!tx) return false;
+        return new Promise((resolve) => {
+          try {
+            const rq = tx.objectStore(storeName).clear();
+            rq.onsuccess = () => resolve(true);
+            rq.onerror = () => resolve(false);
+          } catch {
+            resolve(false);
+          }
+        });
+      }
+      async function idbGetUpdatesForKey(key, limit) {
+        limit = Math.max(1, Math.floor(limit || 50));
+        const tx = await idbTx(STORE_UPDATES, "readonly");
+        if (!tx) return [];
+        return new Promise((resolve) => {
+          try {
+            const st = tx.objectStore(STORE_UPDATES);
+            const idx = st.index("byKeyAt");
+            const range = IDBKeyRange.bound([key, 0], [key, Number.MAX_SAFE_INTEGER]);
+            const out = [];
+            const rq = idx.openCursor(range, "prev"); // newest first
+            rq.onsuccess = () => {
+              const cur = rq.result;
+              if (!cur) return resolve(out);
+              out.push(cur.value);
+              if (out.length >= limit) return resolve(out);
+              cur.continue();
+            };
+            rq.onerror = () => resolve([]);
+          } catch {
+            resolve([]);
+          }
+        });
+      }
+
+      function mergeServerIntoCache(rec) {
+        if (!rec || !rec.key) return;
+        const cur = serverCache.get(rec.key);
+        if (!cur) {
+          serverCache.set(rec.key, rec);
+          return;
+        }
+        const a = Number(cur.updatedAtMs || 0);
+        const b = Number(rec.updatedAtMs || 0);
+        if (b >= a) serverCache.set(rec.key, rec);
+      }
+      async function initDbAndHydrate() {
+        dbp = openDb();
+        const db = await dbp;
+        dbReady = !!db;
+        const savedServers = await idbAll(STORE_SERVERS);
+        for (const s of savedServers) mergeServerIntoCache(s);
+      }
+      // -----------------------------
+      // Time parsing (OCR-friendly)
+      // -----------------------------
+      function parseHMSFlexible(tok) {
+        if (!tok) return null;
+        let s = String(tok).trim();
+        s = s.replace(/[.]/g, ":").replace(/[-–]/g, ":").replace(/\s+/g, ":");
+        s = s.replace(/[Oo]/g, "0").replace(/[Il|]/g, "1");
+        if (/^\d{6}$/.test(s)) {
+          const hh = Number(s.slice(0, 2));
+          const mm = Number(s.slice(2, 4));
+          const ss = Number(s.slice(4, 6));
+          if (mm <= 59 && ss <= 59) {
+            return {
+              h: hh,
+              m: mm,
+              s: ss,
+              text: `${s.slice(0, 2)}:${s.slice(2, 4)}:${s.slice(4, 6)}`
+            };
+          }
+        }
+        const m = s.match(/^(\d+):([0-5]\d):([0-5]\d)$/);
+        if (!m) return null;
+        const hhStr = m[1],
+          mmStr = m[2],
+          ssStr = m[3];
+        const h = Number(hhStr),
+          mm = Number(mmStr),
+          ss = Number(ssStr);
+        const hhText = (hhStr.length === 1) ? hhStr.padStart(2, "0") : hhStr;
+        return {
+          h,
+          m: mm,
+          s: ss,
+          text: `${hhText}:${mmStr}:${ssStr}`
+        };
+      }
+
+      function parseHHMM(txt, fallback) {
+        const s = String(txt || "").trim();
+        const m = s.match(/^([0-2]\d):([0-5]\d)$/);
+        if (!m) return fallback;
+        return {
+          h: Number(m[1]),
+          m: Number(m[2])
+        };
+      }
+
+      function parseNightRange(txt) {
+        const s = String(txt || "").trim();
+        const m = s.match(/^([0-2]\d):([0-5]\d)\s*-\s*([0-2]\d):([0-5]\d)$/);
+        if (!m) return {
+          startMin: 20 * 60,
+          endMin: 6 * 60
+        };
+        return {
+          startMin: Number(m[1]) * 60 + Number(m[2]),
+          endMin: Number(m[3]) * 60 + Number(m[4])
+        };
+      }
+
+      function isNight(clockHMS, nightRange) {
+        if (!clockHMS || clockHMS.h > 23) return null;
+        const mins = clockHMS.h * 60 + clockHMS.m;
+        const {
+          startMin,
+          endMin
+        } = nightRange;
+        if (startMin > endMin) return (mins >= startMin) || (mins < endMin);
+        return (mins >= startMin) && (mins < endMin);
+      }
+      // -----------------------------
+      // Row parsing
+      // -----------------------------
+      const MAP_RE = /\[Map:\s*([^\]]+)\]/i;
+      const REGION_RE = /\b(NA|EU|AS|SA|OC)\b/i;
+      const PLAYERS_RE = /\b(\d{1,2})\s*\/\s*(\d{1,2})\b/;
+
+      function normalizeVersionToken(tok) {
+        let s = String(tok || "").trim();
+        s = s.replace(/[Oo]/g, "0").replace(/[Il|]/g, "1");
+        if (/^\d{4}$/.test(s) && s.startsWith("0")) return `0.${s.slice(1)}`; // 0525 -> 0.525
+        if (/^\d{3}$/.test(s)) return `0.${s}`; // 525 -> 0.525
+        const m = s.match(/\b(\d+\.\d+)\b/);
+        if (m) return m[1];
+        return "";
+      }
+
+      function kindFromLineFuzzy(line) {
+        const l = String(line || "").toLowerCase();
+        if (/\b(veteran|vet)\b/.test(l)) return "Veteran";
+        if (/\b(official|off)\b/.test(l)) return "Official";
+        if (/\b(premium|prem)\b/.test(l)) return "Premium";
+        if (/\bpre[a-z0-9]{0,4}ium\b/.test(l)) return "Premium";
+        return "";
+      }
+
+      function parseServerLine(line) {
+        const raw = normalizeText(line);
+        const kind = kindFromLineFuzzy(raw) || (/#\s*\d+/.test(raw) ? "Premium" : "");
+        if (!kind) return null;
+
+        let id = "";
+
+        // 1) Numeric IDs (current behavior)
+        let m = raw.match(/#\s*([0-9Il|Oo]{1,6})\b/);
+        if (m) {
+          id = m[1];
+          id = String(id)
+            .replace(/[Oo]/g, "0")
+            .replace(/[Il|]/g, "1")
+            .replace(/[^0-9]/g, "");
+          if (!id) return null;
+          return { server: `${kind} #${id}`, kind, id };
+        }
+
+        // 2) UUID / hex-ish IDs (Official rows in your screenshot)
+        // Examples:
+        // 07fa87bc-1d95-416a-ac75-d349e8fb118a
+        // 9e505753-b2c3-4e53-8704-295cd01ee7ce
+        m = raw.match(/#\s*([0-9a-fA-F]{6,}(?:-[0-9a-fA-F]{2,}){2,})\b/);
+        if (m) {
+          id = m[1].trim().toLowerCase().replace(/[^0-9a-z-]/g, "");
+          if (!id) return null;
+          return { server: `${kind} #${id}`, kind, id };
+        }
+
+        // 3) Fallback: any long token after '#'
+        m = raw.match(/#\s*([0-9a-zA-Z-]{6,})\b/);
+        if (m) {
+          id = m[1].trim().toLowerCase().replace(/[^0-9a-z-]/g, "");
+          if (!id) return null;
+          return { server: `${kind} #${id}`, kind, id };
+        }
+
+        return null;
+      }
+
+      function parseRowFromLine(line) {
+        const rawLine = normalizeText(line);
+        const srv = parseServerLine(rawLine);
+        if (!srv) return null;
+        const regionM = rawLine.match(REGION_RE);
+        const region = regionM ? regionM[1].toUpperCase() : "";
+        const playersM = rawLine.match(PLAYERS_RE);
+        const players = playersM ? `${playersM[1]}/${playersM[2]}` : "";
+        const mapM = rawLine.match(MAP_RE);
+        const map = mapM ? String(mapM[1] || "").trim() : "";
+        const timeRe = /(\d+[:.]\d{2}[:.]\d{2}|\b\d{6}\b|\d+\s*[-–]\s*\d{2}\s*[-–]\s*\d{2})/g;
+        const times = [];
+        let mm;
+        while ((mm = timeRe.exec(rawLine)) !== null) {
+          const hms = parseHMSFlexible(mm[1]);
+          if (hms) times.push(hms);
+        }
+        let clock = null;
+        let uptime = null;
+        if (times.length === 1) {
+          uptime = times[0];
+        } else if (times.length >= 2) {
+          clock = times[times.length - 2];
+          uptime = times[times.length - 1];
+          if (clock && uptime && clock.h >= 24 && uptime.h <= 23) {
+            const tmp = clock;
+            clock = uptime;
+            uptime = tmp;
+          }
+        }
+        if (!uptime) return null;
+        let version = "";
+        const floatM = rawLine.match(/\b(\d+\.\d+)\b/);
+        if (floatM) version = floatM[1];
+        if (!version) {
+          const short = rawLine.match(/\b0?\d{3,4}\b/);
+          if (short) version = normalizeVersionToken(short[0]) || "";
+        }
+        return {
+          raw: rawLine,
+          server: srv.server,
+          region,
+          players,
+          map,
+          version,
+          clock,
+          uptime,
+        };
+      }
+
+      function parseInput(raw) {
+        const healed = normalizeText(raw);
+        const lines = splitLines(healed);
+        const out = [];
+        for (const ln of lines) {
+          const row = parseRowFromLine(ln);
+          if (row) out.push(row);
+        }
+        return out;
+      }
+
+      function maxPlayersFromPlayers(players) {
+        const m = String(players || "").match(/^(\d{1,2})\/(\d{1,2})$/);
+        if (!m) return null;
+        return Number(m[2]);
+      }
+
+      function serverKey(row) {
+        return `${(row.server || "").toLowerCase()}||${(row.region || "").toLowerCase()}||${(row.map || "").toLowerCase()}`;
+      }
+      // -----------------------------
+      // Anchors storage (simplified UX, same data model)
+      // -----------------------------
+      function loadAnchors() {
+        try {
+          const raw = localStorage.getItem(LS_ANCHOR);
+          if (!raw) return {
+            v: 2,
+            byKey: {}
+          };
+          const j = JSON.parse(raw);
+          if (!j || typeof j !== "object") return {
+            v: 2,
+            byKey: {}
+          };
+          if (!j.byKey || typeof j.byKey !== "object") j.byKey = {};
+          j.v = 2;
+          return j;
+        } catch {
+          return {
+            v: 2,
+            byKey: {}
+          };
+        }
+      }
+
+      function saveAnchors(anchors) {
+        try {
+          localStorage.setItem(LS_ANCHOR, JSON.stringify(anchors));
+        } catch {}
+      }
+
+      function anchorsToText(anchors) {
+        const items = Object.values(anchors.byKey || {}).filter(Boolean);
+        items.sort((a, b) => (b.lastSeenAt || 0) - (a.lastSeenAt || 0));
+        return items.map(e => {
+          const seen = e.lastWhisperAt ? `WHISPER up ${secToHMS(e.lastWhisperUptimeSec || 0)} @ ${fmtLocal(e.lastWhisperAt)}` : `WHISPER (none)`;
+          return `${e.server} | ${e.region || "?"}${e.map ? ` | ${e.map}` : ""} | last ${fmtLocal(e.lastSeenAt || Date.now())} | resets ${e.resets || 0} | ${seen}`;
+        }).join("\n");
+      }
+
+      function upsertAnchorSeen(anchors, row, nowMs) {
+        const byKey = anchors.byKey || (anchors.byKey = {});
+        const key = serverKey(row);
+        const uptimeSec = row.uptime ? hmsToSec(row.uptime) : null;
+        if (!Number.isFinite(uptimeSec)) return;
+        const estStart = nowMs - uptimeSec * 1000;
+        let e = byKey[key];
+        if (!e) {
+          e = byKey[key] = {
+            server: row.server,
+            region: row.region || "",
+            map: row.map || "",
+            firstSeenAt: nowMs,
+            lastSeenAt: nowMs,
+            lastSeenUptimeSec: uptimeSec,
+            estStartAt: estStart,
+            resets: 0,
+            lastWhisperUptimeSec: null,
+            lastWhisperAt: null,
+            history: []
+          };
+          return;
+        }
+        // recycle detection: uptime drops by > 5 minutes
+        if (Number.isFinite(e.lastSeenUptimeSec) && uptimeSec + 300 < e.lastSeenUptimeSec) {
+          e.resets = (e.resets || 0) + 1;
+          e.lastWhisperUptimeSec = null;
+          e.lastWhisperAt = null;
+          e.history = e.history || [];
+          e.history.push({
+            t: nowMs,
+            type: "reset",
+            note: `uptime dropped ${Math.floor(e.lastSeenUptimeSec)} -> ${Math.floor(uptimeSec)}`
+          });
+        }
+        e.server = row.server;
+        e.region = row.region || e.region || "";
+        e.map = row.map || e.map || "";
+        e.lastSeenAt = nowMs;
+        e.lastSeenUptimeSec = uptimeSec;
+        e.estStartAt = estStart;
+      }
+
+      function anchorSaveEvent(anchors, key, type, calcRow, nowMs) {
+        const e = anchors.byKey[key];
+        if (!e) return;
+        const uptimeSec = calcRow.uptimeSec;
+        e.history = e.history || [];
+        if (type === "seen" && Number.isFinite(uptimeSec)) {
+          e.lastWhisperUptimeSec = uptimeSec;
+          e.lastWhisperAt = nowMs;
+          e.history.push({
+            t: nowMs,
+            type: "seen",
+            up: uptimeSec,
+            clk: calcRow.clockText || ""
+          });
+        } else if (type === "no") {
+          e.history.push({
+            t: nowMs,
+            type: "no",
+            up: uptimeSec,
+            clk: calcRow.clockText || ""
+          });
+        }
+      }
+
+      function anchorClear(anchors, key) {
+        const e = anchors.byKey[key];
+        if (!e) return;
+        e.lastWhisperUptimeSec = null;
+        e.lastWhisperAt = null;
+        e.history = e.history || [];
+        e.history.push({
+          t: Date.now(),
+          type: "clearAnchor"
+        });
+      }
+
+      function anchorClearAll() {
+        try {
+          localStorage.removeItem(LS_ANCHOR);
+        } catch {}
+      }
+
+      function getAnchorSummaryForKey(anchors, key) {
+        if (!key) return {
+          pill: "—",
+          text: ""
+        };
+        const e = anchors.byKey[key];
+        if (!e) return {
+          pill: "none",
+          text: "No anchor entry yet (it appears after first ingest)."
+        };
+        const w = (e.lastWhisperAt && Number.isFinite(e.lastWhisperUptimeSec)) ?
+          `seen @ up ${secToHMS(e.lastWhisperUptimeSec)} (${fmtLocal(e.lastWhisperAt)})` :
+          `no whisper anchor`;
+        const resets = `resets ${e.resets || 0}`;
+        return {
+          pill: `${w} • ${resets}`,
+          text: anchorsToText({
+            byKey: {
+              [key]: e
+            }
+          })
+        };
+      }
+      // -----------------------------
+      // Timezone inference (PT/CT/ET)
+      // -----------------------------
+      const NA_TZ = [{
+          id: "America/Los_Angeles",
+          short: "PT"
+        },
+        {
+          id: "America/Chicago",
+          short: "CT"
+        },
+        {
+          id: "America/New_York",
+          short: "ET"
+        },
+      ];
+
+      function getTimePartsInTZ(date, tz) {
+        try {
+          const fmt = new Intl.DateTimeFormat("en-US", {
+            timeZone: tz,
+            hour12: false,
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit"
+          });
+          const parts = fmt.formatToParts(date);
+          const hh = Number(parts.find(p => p.type === "hour")?.value || "0");
+          const mm = Number(parts.find(p => p.type === "minute")?.value || "0");
+          const ss = Number(parts.find(p => p.type === "second")?.value || "0");
+          return {
+            h: hh,
+            m: mm,
+            s: ss,
+            text: `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`
+          };
+        } catch {
+          return null;
+        }
+      }
+
+      function inferServerTZ(serverClockHMS, captureDate, toleranceMin) {
+        if (!serverClockHMS || serverClockHMS.h > 23) return {
+          best: null,
+          candidates: []
+        };
+        if (!captureDate) return {
+          best: null,
+          candidates: []
+        };
+        const serverClockSec = hmsToSec(serverClockHMS);
+        const cand = [];
+        for (const tz of NA_TZ) {
+          const t = getTimePartsInTZ(captureDate, tz.id);
+          if (!t) continue;
+          const realSec = hmsToSec(t);
+          const diff = circleDiffSec(serverClockSec, realSec);
+          cand.push({
+            ...tz,
+            diffSec: diff,
+            realText: t.text
+          });
+        }
+        cand.sort((a, b) => a.diffSec - b.diffSec);
+        const best = cand[0] || null;
+        const ok = best && (best.diffSec <= Math.max(0, toleranceMin) * 60);
+        return {
+          best: ok ? best : null,
+          candidates: cand
+        };
+      }
+
+      function baseToTzId(base) {
+        if (base === "pacific") return "America/Los_Angeles";
+        if (base === "central") return "America/Chicago";
+        if (base === "eastern") return "America/New_York";
+        return null;
+      }
+
+      function offsetMinutesBetweenTZ(captureDate, serverTZId, baseTZId) {
+        const a = getTimePartsInTZ(captureDate, serverTZId);
+        const b = getTimePartsInTZ(captureDate, baseTZId);
+        if (!a || !b) return null;
+        const da = hhmmToMin(a);
+        const db = hhmmToMin(b);
+        let off = da - db;
+        off = mod(off + 720, 1440) - 720;
+        return off;
+      }
+      // -----------------------------
+      // Window models
+      // -----------------------------
+      function calcClockWindow(nowClockHMS, cfg, tzInfo, captureDateForRow) {
+        if (!nowClockHMS || nowClockHMS.h > 23) return null;
+        const periodMin = Math.max(1, Math.floor(cfg.periodHours * 60));
+        const jitterSec = Math.max(0, Math.floor(cfg.jitterMaxMin * 60));
+        const nowMin = hhmmToMin(nowClockHMS);
+        let anchorHHMM = parseHHMM(cfg.clockAnchor, {
+          h: 19,
+          m: 1
+        });
+        let anchorMin = hhmmToMin(anchorHHMM);
+        if (cfg.clockBase !== "serverLocal") {
+          const baseTz = baseToTzId(cfg.clockBase);
+          const serverTz = tzInfo && tzInfo.best ? tzInfo.best.id : null;
+          const cap = captureDateForRow || cfg.captureDate || null;
+          if (!baseTz || !serverTz || !cap) {
+            return {
+              ok: false,
+              reason: "needs timezone + capture time",
+              nextStartSec: null,
+              inWindow: false,
+              windowEndsSec: null,
+              anchorLocalMin: null
+            };
+          }
+          const off = offsetMinutesBetweenTZ(cap, serverTz, baseTz);
+          if (off == null) {
+            return {
+              ok: false,
+              reason: "timezone conversion failed",
+              nextStartSec: null,
+              inWindow: false,
+              windowEndsSec: null,
+              anchorLocalMin: null
+            };
+          }
+          anchorMin = mod(anchorMin + off, 1440);
+        }
+        const remMin = mod(nowMin - anchorMin, periodMin);
+        const sinceMarkSec = remMin * 60 + nowClockHMS.s;
+        const inWindow = (jitterSec === 0) ? (sinceMarkSec === 0) : (sinceMarkSec <= jitterSec);
+        const windowEndsSec = inWindow ? Math.max(0, jitterSec - sinceMarkSec) : 0;
+        const toNextMarkMin = (periodMin - remMin) % periodMin;
+        let nextStartSec = toNextMarkMin * 60 - nowClockHMS.s;
+        if (nextStartSec < 0) nextStartSec += periodMin * 60;
+        return {
+          ok: true,
+          reason: "",
+          inWindow,
+          windowEndsSec,
+          nextStartSec,
+          anchorLocalMin: anchorMin
+        };
+      }
+
+      function calcUptimeWindow(uptimeSec, cfg) {
+        const periodSec = Math.max(1, Math.floor(cfg.periodHours * 3600));
+        const jitterSec = Math.max(0, Math.floor(cfg.jitterMaxMin * 60));
+        const rem = uptimeSec % periodSec;
+        const inWindow = (jitterSec === 0) ? (rem === 0) : (rem <= jitterSec);
+        const windowEndsSec = inWindow ? Math.max(0, jitterSec - rem) : 0;
+        const toNextMark = (periodSec - rem) % periodSec;
+        return {
+          ok: true,
+          inWindow,
+          windowEndsSec,
+          nextStartSec: toNextMark
+        };
+      }
+
+      function calcAnchorWindow(anchorUptimeSec, uptimeSec, cfg) {
+        const periodSec = Math.max(1, Math.floor(cfg.periodHours * 3600));
+        const jitterSec = Math.max(0, Math.floor(cfg.jitterMaxMin * 60));
+        const nextStartUptime = anchorUptimeSec + periodSec;
+        const inWindow = (uptimeSec >= nextStartUptime) && (uptimeSec <= nextStartUptime + jitterSec);
+        const windowEndsSec = inWindow ? Math.max(0, (nextStartUptime + jitterSec) - uptimeSec) : 0;
+        const nextStartSec = Math.max(0, nextStartUptime - uptimeSec);
+        return {
+          ok: true,
+          inWindow,
+          windowEndsSec,
+          nextStartSec
+        };
+      }
+
+      function inPrepRange(nextStartSec, cfg) {
+        const min = Math.min(cfg.winMin, cfg.winMax);
+        const max = Math.max(cfg.winMin, cfg.winMax);
+        const mins = nextStartSec / 60;
+        return (mins >= min) && (mins <= max);
+      }
+      // -----------------------------
+      // Config + defaults
+      // -----------------------------
+      const DEFAULTS = {
+        periodHours: 6,
+        jitterMaxMin: 60,
+        winMin: 5,
+        winMax: 15,
+        modelMode: "auto",
+        clockAnchor: "19:01",
+        clockBase: "serverLocal",
+        nightRange: "20:00-06:00",
+        requireNight: true,
+        showMode: "all",
+        sortMode: "closest",
+        omitCity13: true,
+        omitMax12: true,
+        picksCount: 3,
+        captureDelaySec: 15,
+        autoSetCaptureTime: true,
+        tzToleranceMin: 6
+      };
+
+      function buildConfig() {
+        const periodHours = clampNum(periodHoursEl.value, 1, 9999, DEFAULTS.periodHours);
+        const jitterMaxMin = clampNum(jitterMaxEl.value, 0, 9999, DEFAULTS.jitterMaxMin);
+        const winMin = clampNum(winMinEl.value, 0, 9999, DEFAULTS.winMin);
+        const winMax = clampNum(winMaxEl.value, 0, 9999, DEFAULTS.winMax);
+        const requireNight = (String(requireNightEl.value) === "true");
+        const omitCity13 = (String(omitCity13El.value) === "true");
+        const omitMax12 = (String(omitMax12El.value) === "true");
+        const nightRange = parseNightRange(nightRangeEl.value);
+        const modelMode = String(modelModeEl.value || DEFAULTS.modelMode);
+        const showMode = String(showModeEl.value || DEFAULTS.showMode);
+        const sortMode = String(sortModeEl.value || DEFAULTS.sortMode);
+        const clockAnchor = String(clockAnchorEl.value || DEFAULTS.clockAnchor).trim();
+        const clockBase = String(clockBaseEl.value || DEFAULTS.clockBase);
+        const tzToleranceMin = clampNum(tzToleranceEl.value, 0, 120, DEFAULTS.tzToleranceMin);
+        let captureDate = null;
+        const cap = captureTimeEl.value;
+        if (cap) {
+          const d = new Date(cap);
+          if (!Number.isNaN(d.getTime())) captureDate = d;
+        } else {
+          captureDate = new Date();
+        }
+        const captureDelaySec = clampNum(captureDelaySecEl.value, 0, 600, DEFAULTS.captureDelaySec);
+        const autoSetCaptureTime = (String(autoSetCaptureTimeEl.value) === "true");
+        return {
+          periodHours,
+          jitterMaxMin,
+          winMin,
+          winMax,
+          requireNight,
+          nightRange,
+          modelMode,
+          showMode,
+          sortMode,
+          clockAnchor,
+          clockBase,
+          captureDate,
+          tzToleranceMin,
+          omitCity13,
+          omitMax12,
+          captureDelaySec,
+          autoSetCaptureTime
+        };
+      }
+
+      function updateOptionsSummary(cfg) {
+        const isDefault =
+          cfg.periodHours === DEFAULTS.periodHours &&
+          cfg.jitterMaxMin === DEFAULTS.jitterMaxMin &&
+          Math.min(cfg.winMin, cfg.winMax) === Math.min(DEFAULTS.winMin, DEFAULTS.winMax) &&
+          Math.max(cfg.winMin, cfg.winMax) === Math.max(DEFAULTS.winMin, DEFAULTS.winMax) &&
+          cfg.modelMode === DEFAULTS.modelMode &&
+          cfg.clockAnchor === DEFAULTS.clockAnchor &&
+          cfg.clockBase === DEFAULTS.clockBase &&
+          String(nightRangeEl.value || "") === DEFAULTS.nightRange &&
+          cfg.requireNight === DEFAULTS.requireNight &&
+          cfg.showMode === DEFAULTS.showMode &&
+          cfg.sortMode === DEFAULTS.sortMode &&
+          cfg.omitCity13 === DEFAULTS.omitCity13 &&
+          cfg.omitMax12 === DEFAULTS.omitMax12 &&
+          clampNum(picksCountEl.value, 1, 50, DEFAULTS.picksCount) === DEFAULTS.picksCount &&
+          cfg.captureDelaySec === DEFAULTS.captureDelaySec &&
+          cfg.autoSetCaptureTime === DEFAULTS.autoSetCaptureTime &&
+          cfg.tzToleranceMin === DEFAULTS.tzToleranceMin;
+        optionsSummaryEl.textContent = isDefault ? "Options (default)" : "Options (custom)";
+      }
+
+      function shouldOmitRow(calcRow, cfg) {
+        if (cfg.omitCity13 && calcRow.map && /city[-\s]?13/i.test(calcRow.map)) return true;
+        if (cfg.omitMax12 && calcRow.maxPlayers === 12) return true;
+        return false;
+      }
+      // -----------------------------
+      // Model selection
+      // -----------------------------
+      function chooseModel(calcRow, cfg, anchors) {
+        const wants = cfg.modelMode;
+        const canAnchors = (wants === "auto" || wants === "anchors");
+        const canClock = (wants === "auto" || wants === "clock");
+        const canUptime = (wants === "auto" || wants === "uptime");
+        const out = [];
+        if (canAnchors) {
+          const e = anchors.byKey[calcRow.key];
+          if (e && Number.isFinite(e.lastWhisperUptimeSec) && calcRow.uptimeSec >= e.lastWhisperUptimeSec) {
+            const w = calcAnchorWindow(e.lastWhisperUptimeSec, calcRow.uptimeSec, cfg);
+            out.push({
+              src: "anchors",
+              name: "Anchors",
+              short: "anch",
+              ...w,
+              note: ""
+            });
+          } else if (wants === "anchors") {
+            out.push({
+              src: "anchors",
+              name: "Anchors",
+              short: "anch",
+              ok: false,
+              inWindow: false,
+              nextStartSec: null,
+              windowEndsSec: null,
+              note: "no anchor saved"
+            });
+          }
+        }
+        if (canClock) {
+          const w = calcClockWindow(calcRow.clockHMS, cfg, calcRow.tzInfo, calcRow.captureDateForRow);
+          out.push({
+            src: "clock",
+            name: "Clock",
+            short: "clk",
+            ...w,
+            note: w && w.ok ? "" : (w && w.reason ? w.reason : "clock not available")
+          });
+        }
+        if (canUptime) {
+          const w = calcUptimeWindow(calcRow.uptimeSec, cfg);
+          out.push({
+            src: "uptime",
+            name: "Uptime",
+            short: "up",
+            ...w,
+            note: ""
+          });
+        }
+
+        function score(x) {
+          if (!x || !x.ok) return 999999;
+          const tier = x.inWindow ? 0 : (x.nextStartSec != null && inPrepRange(x.nextStartSec, cfg) ? 1 : 2);
+          const t = (x.nextStartSec == null) ? 999999 : x.nextStartSec;
+          return tier * 100000 + t;
+        }
+        out.sort((a, b) => score(a) - score(b));
+        return out[0] || {
+          src: "none",
+          name: "None",
+          short: "—",
+          ok: false,
+          inWindow: false,
+          nextStartSec: null,
+          windowEndsSec: null,
+          note: ""
+        };
+      }
+
+      function formatTZ(calcRow, cfg) {
+        if (cfg.clockBase === "serverLocal") return {
+          text: "—",
+          sub: ""
+        };
+        const best = calcRow.tzInfo && calcRow.tzInfo.best ? calcRow.tzInfo.best : null;
+        if (!best) return {
+          text: "unknown",
+          sub: ""
+        };
+        const mins = Math.round(best.diffSec / 60);
+        return {
+          text: `${best.short}`,
+          sub: `±${mins}m`
+        };
+      }
+
+      function buildStatus(calcRow, modelPick, cfg) {
+        const nightAllowed = (!cfg.requireNight) || (calcRow.night === true);
+        const inWindow = !!modelPick.inWindow;
+        const prep = (!inWindow && modelPick.ok && modelPick.nextStartSec != null && inPrepRange(modelPick.nextStartSec, cfg));
+        const check = (nightAllowed && inWindow);
+        let tag = "skip";
+        if (check) tag = "CHECK";
+        else if (nightAllowed && prep) tag = "PREP";
+        else tag = "skip";
+        let reason = "";
+        if (cfg.requireNight && calcRow.night === false) reason = "day";
+        if (cfg.requireNight && calcRow.night == null) reason = "night?";
+        if (!modelPick.ok) reason = modelPick.note || "model n/a";
+        return {
+          tag,
+          check,
+          prep,
+          reason
+        };
+      }
+      // -----------------------------
+      // Whisper toggle + state
+      // -----------------------------
+      function whisperStateToClass(v) {
+        if (v === 1) return "seen";
+        if (v === 2) return "no";
+        return "unk";
+      }
+
+      function whisperStateToGlyph(v) {
+        if (v === 1) return "✅";
+        if (v === 2) return "❌";
+        return "☐";
+      }
+
+      function renderWhisperToggle(key, state) {
+        const cls = whisperStateToClass(state);
+        const glyph = whisperStateToGlyph(state);
+        return `<button type="button" class="wToggle ${cls} wToggleSmall" data-key="${esc(key)}" title="Whisper confirm (click to cycle)">${glyph}</button>`;
+      }
+      async function setWhisperStateForKey(key, state) {
+        const rec = serverCache.get(key);
+        if (!rec) return;
+        rec.whisperState = state;
+        rec.whisperAtMs = Date.now();
+        serverCache.set(key, rec);
+        await idbPut(STORE_SERVERS, rec);
+        await idbAdd(STORE_UPDATES, {
+          key,
+          atMs: Date.now(),
+          ingestId: "whisper-set",
+          source: "user",
+          changes: {
+            whisper: true
+          },
+          snap: {
+            whisperState: state
+          }
+        });
+        // anchor feed
+        const row = lastRenderByKey.get(key);
+        if (row) {
+          const anchors = loadAnchors();
+          upsertAnchorSeen(anchors, {
+            server: row.server,
+            region: row.region,
+            map: row.map,
+            uptime: parseHMSFlexible(row.uptimeText) || row._uptimeHMS
+          }, Date.now());
+          if (state === 1) anchorSaveEvent(anchors, key, "seen", row, Date.now());
+          if (state === 2) anchorSaveEvent(anchors, key, "no", row, Date.now());
+          saveAnchors(anchors);
+        }
+        renderAll();
+      }
+      async function cycleWhisperForKey(key) {
+        const rec = serverCache.get(key);
+        if (!rec) return;
+        const cur = Number(rec.whisperState || 0);
+        const next = (cur + 1) % 3;
+        await setWhisperStateForKey(key, next);
+      }
+      // -----------------------------
+      // Ingest (input/OCR) into persistent DB
+      // -----------------------------
+      function computeIngestSignature() {
+        const cap = String(captureTimeEl.value || "");
+        const box = normalizeText(inputBoxEl.value || "");
+        return `${fnv1a(cap)}-${fnv1a(box)}`;
+      }
+      async function recordToDbUpdate(key, ingestId, source, snap, changes) {
+        await idbAdd(STORE_UPDATES, {
+          key,
+          atMs: Date.now(),
+          ingestId,
+          source,
+          changes: changes || {},
+          snap: snap || {}
+        });
+      }
+      async function upsertServerRecordFromRow(row, cfg, source, ingestId) {
+        const key = serverKey(row);
+        const nowMs = Date.now();
+        const observedAtMs = (cfg.captureDate && Number.isFinite(cfg.captureDate.getTime())) ?
+          cfg.captureDate.getTime() :
+          nowMs;
+        const uptimeSecObs = row.uptime ? hmsToSec(row.uptime) : null;
+        const clockSecObs = (row.clock && row.clock.h <= 23) ? hmsToSec(row.clock) : null;
+        const prev = serverCache.get(key);
+        const snap = {
+          server: row.server,
+          region: row.region || "",
+          players: row.players || "",
+          map: row.map || "",
+          version: row.version || "",
+          uptimeTextObs: row.uptime ? row.uptime.text : "",
+          clockTextObs: (row.clock && row.clock.h <= 23) ? row.clock.text : "",
+          uptimeSecObs: uptimeSecObs,
+          clockSecObs: clockSecObs,
+          observedAtMs: observedAtMs
+        };
+        const changes = {};
+        if (prev) {
+          if (String(prev.players || "") !== String(snap.players || "")) changes.players = true;
+          if (String(prev.map || "") !== String(snap.map || "")) changes.map = true;
+          if (String(prev.region || "") !== String(snap.region || "")) changes.region = true;
+          if (String(prev.version || "") !== String(snap.version || "")) changes.version = true;
+          if (Number(prev.uptimeSecObs) !== Number(snap.uptimeSecObs)) changes.uptime = true;
+          if (Number(prev.clockSecObs) !== Number(snap.clockSecObs)) changes.clock = true;
+        } else {
+          changes.new = true;
+        }
+        const rec = {
+          key,
+          server: snap.server,
+          region: snap.region,
+          players: snap.players,
+          map: snap.map,
+          version: snap.version,
+          observedAtMs: observedAtMs,
+          updatedAtMs: nowMs,
+          source: source || "input",
+          uptimeSecObs: uptimeSecObs,
+          clockSecObs: clockSecObs,
+          ingestCount: (prev ? Number(prev.ingestCount || 0) : 0) + 1,
+          whisperState: prev ? Number(prev.whisperState || 0) : 0,
+          whisperAtMs: prev ? Number(prev.whisperAtMs || 0) : 0,
+        };
+        serverCache.set(key, rec);
+        await idbPut(STORE_SERVERS, rec);
+        await recordToDbUpdate(key, ingestId, source, snap, changes);
+        return {
+          key,
+          rec
+        };
+      }
+      async function ingestInputIfChanged(cfg, anchors) {
+        const sig = computeIngestSignature();
+        if (sig === lastIngestSig) return false;
+        lastIngestSig = sig;
+        const source = nextIngestSource || "input";
+        nextIngestSource = "";
+        const ingestId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        const parsed = parseInput(inputBoxEl.value || "");
+        for (const r of parsed) {
+          await upsertServerRecordFromRow(r, cfg, source, ingestId);
+          upsertAnchorSeen(anchors, r, Date.now());
+        }
+        saveAnchors(anchors);
+        return true;
+      }
+      // -----------------------------
+      // Calculation (from persistent cache)
+      // -----------------------------
+      function calcAll() {
+        const cfg = buildConfig();
+        const nowMs = Date.now();
+        const anchors = loadAnchors();
+        // Update delay label in UI
+        delayLabelEl.textContent = String(clampNum(cfg.captureDelaySec, 0, 600, 15));
+        const calc = [];
+        for (const rec of serverCache.values()) {
+          const live = computeLiveSnapshot(rec, nowMs);
+          if (!Number.isFinite(live.uptimeLiveSec)) continue;
+          const clockNowHMS = live.clockLiveHMS;
+          const clockObsHMS = live.clockObsHMS;
+          const night = clockNowHMS ? isNight(clockNowHMS, cfg.nightRange) : null;
+          const maxPlayers = maxPlayersFromPlayers(rec.players);
+          const captureDateForRow = new Date(Number(rec.observedAtMs || nowMs));
+          const tzInfo = inferServerTZ(clockObsHMS, captureDateForRow, cfg.tzToleranceMin);
+          const key = rec.key;
+          const calcRow = {
+            key,
+            server: rec.server,
+            region: rec.region,
+            players: rec.players,
+            maxPlayers,
+            map: rec.map || "",
+            version: rec.version || "",
+            clockText: clockNowHMS ? clockNowHMS.text : "",
+            clockHMS: clockNowHMS,
+            uptimeText: secToHMS(live.uptimeLiveSec),
+            uptimeSec: live.uptimeLiveSec,
+            _uptimeHMS: parseHMSFlexible(secToHMS(live.uptimeLiveSec)),
+            observedAtMs: Number(rec.observedAtMs || nowMs),
+            observedAtText: fmtLocal(Number(rec.observedAtMs || nowMs)),
+            uptimeObsText: Number.isFinite(live.uptimeObsSec) ? secToHMS(live.uptimeObsSec) : "",
+            clockObsText: clockObsHMS ? clockObsHMS.text : "",
+            estStartLocal: fmtLocal(nowMs - live.uptimeLiveSec * 1000),
+            night,
+            tzInfo,
+            captureDateForRow,
+            whisperState: Number(rec.whisperState || 0),
+            whisperAtMs: Number(rec.whisperAtMs || 0),
+            ingestCount: Number(rec.ingestCount || 0),
+          };
+          const modelPick = chooseModel(calcRow, cfg, anchors);
+          const st = buildStatus(calcRow, modelPick, cfg);
+          const timeBias = (modelPick.ok && modelPick.nextStartSec != null) ? modelPick.nextStartSec : 999999;
+          const tier = (st.tag === "CHECK") ? 0 : (st.tag === "PREP") ? 1 : 2;
+          const rank = tier * 1000000 + timeBias;
+          calc.push({
+            ...calcRow,
+            model: modelPick,
+            status: st,
+            rank
+          });
+        }
+        const filteredOmit = calc.filter(row => !shouldOmitRow(row, cfg));
+        return {
+          cfg,
+          anchors,
+          rows: filteredOmit,
+          rawCount: splitLines(inputBoxEl.value || "").length
+        };
+      }
+      // -----------------------------
+      // Rendering helpers
+      // -----------------------------
+      function pillForStatus(tag) {
+        if (tag === "CHECK") return `<span class="pill pillOk"><span class="pip pipOk"></span>CHECK</span>`;
+        if (tag === "PREP") return `<span class="pill pillWarn"><span class="pip pipWarn"></span>PREP</span>`;
+        return `<span class="pill pillDim"><span class="pip"></span>skip</span>`;
+      }
+
+      function pillForNight(night) {
+        if (night === true) return `<span class="pill"><span class="pip pipWarn"></span>Night</span>`;
+        if (night === false) return `<span class="pill pillDim"><span class="pip"></span>Day</span>`;
+        return `<span class="pill pillDim"><span class="pip"></span>?</span>`;
+      }
+
+      function applyQuickFilter(rows) {
+        const f = String(quickFilterEl.value || "").trim().toLowerCase();
+        const f2 = String(filterBoxEl.value || "").trim().toLowerCase();
+        const q = (f || f2).trim();
+        if (!q) return rows;
+        return rows.filter(r => {
+          const blob = [
+            r.server, r.region, r.players, r.map, r.clockText, r.uptimeText,
+            r.model.name, r.model.short, r.status.tag,
+            (r.tzInfo.best ? r.tzInfo.best.short : "unknown"),
+            r.whisperState === 1 ? "seen" : r.whisperState === 2 ? "no" : "unk"
+          ].join(" ").toLowerCase();
+          return blob.includes(q);
+        });
+      }
+
+      function renderStatusLine(rows, cfg, rawCount) {
+        const checkCount = rows.filter(r => r.status.tag === "CHECK").length;
+        const prepCount = rows.filter(r => r.status.tag === "PREP").length;
+        const pills = [
+          `<span class="pill pillDim"><span class="pip"></span>Saved ${esc(serverCache.size)}</span>`,
+          `<span class="pill pillDim"><span class="pip"></span>Parsed ${esc(rawCount)}</span>`,
+          `<span class="pill pillOk"><span class="pip pipOk"></span>CHECK ${esc(checkCount)}</span>`,
+          `<span class="pill pillWarn"><span class="pip pipWarn"></span>PREP ${esc(prepCount)}</span>`,
+          lastOcrResult.atMs ? `<span class="pill pillDim"><span class="pip"></span>OCR ${esc(lastOcrResult.rows)} @ ${esc(fmtLocal(lastOcrResult.atMs))}</span>` : ``
+        ].filter(Boolean);
+        statusLineEl.innerHTML = pills.join(" ");
+        rowsPill.textContent = `${rows.length} rows`;
+        updateOptionsSummary(cfg);
+      }
+
+      function renderPicks(rows, cfg) {
+        const count = clampNum(picksCountEl.value, 1, 50, DEFAULTS.picksCount);
+        const sorted = rows.slice().sort((a, b) => {
+          if (cfg.sortMode === "input") return 0;
+          if (cfg.sortMode === "soonestStart") {
+            const at = (a.model.ok && a.model.nextStartSec != null) ? a.model.nextStartSec : 999999;
+            const bt = (b.model.ok && b.model.nextStartSec != null) ? b.model.nextStartSec : 999999;
+            const ta = (a.status.tag === "CHECK") ? 0 : (a.status.tag === "PREP") ? 1 : 2;
+            const tb = (b.status.tag === "CHECK") ? 0 : (b.status.tag === "PREP") ? 1 : 2;
+            if (ta !== tb) return ta - tb;
+            return at - bt;
+          }
+          return a.rank - b.rank;
+        });
+        // Prefer: CHECK rows first, then fill up to count.
+        const checks = sorted.filter(r => r.status.tag === "CHECK");
+        const rest = sorted.filter(r => r.status.tag !== "CHECK");
+        const shown = checks.concat(rest).slice(0, count);
+        if (!shown.length) {
+          picksEl.innerHTML = `<div class="mini">No servers yet. Paste/OCR rows to ingest.</div>`;
+          return;
+        }
+        picksEl.innerHTML = shown.map(r => {
+          const dimRail = (r.status.tag === "skip") ? "dim" : "";
+          const nextTxt = r.model.ok && r.model.nextStartSec != null ? (r.model.inWindow ? "NOW" : dur(r.model.nextStartSec)) : "?";
+          const endsTxt = (r.model.inWindow ? ` • ends ${dur(r.model.windowEndsSec || 0)}` : "");
+          const wToggle = renderWhisperToggle(r.key, r.whisperState);
+          const tzFmt = formatTZ(r, cfg);
+          const metaA = `${r.region || "?"}${r.players ? ` • ${r.players}` : ""}${r.map ? ` • ${r.map}` : ""}`;
+          const metaB = `clk ${r.clockText || "?"} • up ${r.uptimeText}`;
+          const metaC = `model ${r.model.short} • next ${nextTxt}${endsTxt}`;
+          const metaD = (cfg.clockBase !== "serverLocal") ? `tz ${tzFmt.text} ${tzFmt.sub}` : "";
+          const more = [
+            `obs ${r.observedAtText}`,
+            r.clockObsText ? `clkObs ${r.clockObsText}` : "",
+            r.uptimeObsText ? `upObs ${r.uptimeObsText}` : "",
+            `start ${r.estStartLocal}`,
+            r.status.reason ? `note ${r.status.reason}` : "",
+            r.version ? `v${r.version}` : "",
+            metaD
+          ].filter(Boolean).join(" • ");
+          return `
+            <div class="pick" data-key="${esc(r.key)}" title="Click to open updates">
+              <div class="pickTop">
+                <div class="rail ${dimRail}"></div>
+                <div class="pickMain">
+                  <div class="pickTitleLine">
+                    <span class="mono">${esc(r.server)}</span>
+                    ${pillForStatus(r.status.tag)}
+                    ${pillForNight(r.night)}
+                    ${wToggle}
+                    <span class="pickToggle" data-pick-toggle="1">more</span>
+                  </div>
+                  <div class="pickMeta">
+                    <div class="kv"><b>${esc(metaA)}</b></div>
+                    <div class="kv mono">${esc(metaB)}</div>
+                    <div class="kv">${esc(metaC)}</div>
+                  </div>
+                  <div class="moreDetails mini mono">${esc(more)}</div>
+                </div>
+              </div>
+            </div>
+          `;
+        }).join("");
+      }
+
+      function renderTable(rows, cfg) {
+        let shown = rows.slice();
+        if (cfg.showMode === "onlyCheck") shown = shown.filter(r => r.status.tag === "CHECK");
+        if (cfg.showMode === "onlyNight") shown = shown.filter(r => r.night === true);
+        if (cfg.showMode === "checkAndNight") shown = shown.filter(r => r.status.tag === "CHECK" && r.night === true);
+        shown = applyQuickFilter(shown);
+        if (cfg.sortMode === "closest") shown.sort((a, b) => a.rank - b.rank);
+        if (cfg.sortMode === "soonestStart") {
+          shown.sort((a, b) => {
+            const ta = (a.status.tag === "CHECK") ? 0 : (a.status.tag === "PREP") ? 1 : 2;
+            const tb = (b.status.tag === "CHECK") ? 0 : (b.status.tag === "PREP") ? 1 : 2;
+            if (ta !== tb) return ta - tb;
+            const at = (a.model.ok && a.model.nextStartSec != null) ? a.model.nextStartSec : 999999;
+            const bt = (b.model.ok && b.model.nextStartSec != null) ? b.model.nextStartSec : 999999;
+            return at - bt;
+          });
+        }
+        tablePill.textContent = `${shown.length} shown`;
+        if (!shown.length) {
+          tbodyEl.innerHTML = `<tr><td colspan="10" class="mini">Nothing matches the filter.</td></tr>`;
+          return;
+        }
+        tbodyEl.innerHTML = shown.map(r => {
+          const tzFmt = formatTZ(r, cfg);
+          const modelTxt = r.model.ok ?
+            `${r.model.short} • ${r.model.inWindow ? "NOW" : dur(r.model.nextStartSec || 0)}${r.model.inWindow ? ` • ends ${dur(r.model.windowEndsSec || 0)}` : ""}` :
+            `${r.model.short} • ${r.model.note || "n/a"}`;
+          const wCell = renderWhisperToggle(r.key, r.whisperState);
+          return `
+            <tr class="rowClick" data-key="${esc(r.key)}">
+              <td class="mono">
+                ${esc(r.server)}
+                ${r.map ? `<div class="mini">map: ${esc(r.map)}</div>` : ``}
+                ${r.version ? `<div class="mini">v${esc(r.version)}</div>` : ``}
+                <div class="mini">obs: ${esc(r.observedAtText)} • updates: ${esc(r.ingestCount)}</div>
+              </td>
+              <td>${esc(r.region || "")}</td>
+              <td>${esc(r.players || "")}</td>
+              <td class="mono">
+                ${esc(r.clockText || "")}
+                ${r.clockObsText ? `<div class="mini">obs: ${esc(r.clockObsText)}</div>` : ``}
+                <div class="mini">${pillForNight(r.night)}</div>
+              </td>
+              <td class="mono">
+                ${esc(r.uptimeText)}
+                <div class="mini">start: ${esc(r.estStartLocal)}</div>
+              </td>
+              <td class="mono"><div class="mini">${esc(modelTxt)}</div></td>
+              <td><span class="pill pillDim"><span class="pip"></span>${esc(r.model.name)}</span></td>
+              <td class="mono">${esc(tzFmt.text)} <span class="mini">${esc(tzFmt.sub || "")}</span></td>
+              <td>${wCell}</td>
+              <td>${pillForStatus(r.status.tag)}</td>
+            </tr>
+          `;
+        }).join("");
+      }
+
+      function refreshActiveUI(cfg, anchors) {
+        if (!activeKey || !lastRenderByKey.get(activeKey)) {
+          activeServerPill.textContent = "none";
+          activeAnchorPill.textContent = "—";
+          return;
+        }
+        const row = lastRenderByKey.get(activeKey);
+        activeServerPill.textContent = row ? row.server : "—";
+        const sum = getAnchorSummaryForKey(anchors, activeKey);
+        activeAnchorPill.textContent = sum.pill || "—";
+      }
+      // -----------------------------
+      // State save/load
+      // -----------------------------
+      function saveStateIfChanged() {
+        const state = {
+          periodHours: periodHoursEl.value,
+          jitterMax: jitterMaxEl.value,
+          winMin: winMinEl.value,
+          winMax: winMaxEl.value,
+          modelMode: modelModeEl.value,
+          clockAnchor: clockAnchorEl.value,
+          clockBase: clockBaseEl.value,
+          nightRange: nightRangeEl.value,
+          requireNight: requireNightEl.value,
+          showMode: showModeEl.value,
+          sortMode: sortModeEl.value,
+          omitCity13: omitCity13El.value,
+          omitMax12: omitMax12El.value,
+          picksCount: picksCountEl.value,
+          captureDelaySec: captureDelaySecEl.value,
+          autoSetCaptureTime: autoSetCaptureTimeEl.value,
+          captureTime: captureTimeEl.value,
+          tzToleranceMin: tzToleranceEl.value,
+          inputBox: inputBoxEl.value,
+          quickFilter: quickFilterEl.value,
+          filterBox: filterBoxEl.value
+        };
+        const sig = fnv1a(JSON.stringify(state));
+        if (sig === lastStateSig) return;
+        lastStateSig = sig;
+        try {
+          localStorage.setItem(LS_STATE, JSON.stringify(state));
+        } catch {}
+      }
+
+      function loadState() {
+        try {
+          const raw = localStorage.getItem(LS_STATE) || localStorage.getItem(LS_STATE_OLD_V8);
+          if (!raw) return null;
+          return JSON.parse(raw);
+        } catch {
+          return null;
+        }
+      }
+      // -----------------------------
+      // Clipboard helpers
+      // -----------------------------
+      async function writeClipboard(text) {
+        try {
+          await navigator.clipboard.writeText(text);
+          return true;
+        } catch {
+          window.prompt("Copy this:", text);
+          return false;
+        }
+      }
+      async function copyCheck() {
+        const {
+          cfg,
+          rows
+        } = calcAll();
+        const shown = applyQuickFilter(rows).filter(r => r.status.tag === "CHECK");
+        const text = shown.length ?
+          shown.map(r => {
+            const tzFmt = formatTZ(r, cfg);
+            const base = (cfg.clockBase === "serverLocal") ? "" : ` tz:${tzFmt.text}${tzFmt.sub}`;
+            const next = r.model.inWindow ? "NOW" : (r.model.nextStartSec != null ? dur(r.model.nextStartSec) : "?");
+            return `CHECK | ${r.model.short} | ${r.server} | ${r.region} ${r.players || ""} | clk:${r.clockText || "?"} up:${r.uptimeText} | next:${next}${base}`;
+          }).join("\n") :
+          "(no CHECK servers)";
+        await writeClipboard(text);
+      }
+      async function copyPicks() {
+        const {
+          cfg,
+          rows
+        } = calcAll();
+        const count = clampNum(picksCountEl.value, 1, 50, DEFAULTS.picksCount);
+        const sorted = applyQuickFilter(rows).slice().sort((a, b) => a.rank - b.rank).slice(0, count);
+        const text = sorted.length ?
+          sorted.map(r => {
+            const tzFmt = formatTZ(r, cfg);
+            const base = (cfg.clockBase === "serverLocal") ? "" : ` tz:${tzFmt.text}${tzFmt.sub}`;
+            const next = r.model.inWindow ? "NOW" : (r.model.nextStartSec != null ? dur(r.model.nextStartSec) : "?");
+            return `${r.status.tag} | ${r.model.short} | ${r.server} | ${r.region} ${r.players || ""} | clk:${r.clockText || "?"} up:${r.uptimeText} | next:${next}${base}`;
+          }).join("\n") :
+          "(no servers)";
+        await writeClipboard(text);
+      }
+
+      function makeDebugDump(extraKey) {
+        const {
+          cfg,
+          anchors,
+          rows,
+          rawCount
+        } = calcAll();
+        const qRows = applyQuickFilter(rows);
+        const check = qRows.filter(r => r.status.tag === "CHECK").slice(0, 8);
+        const top = qRows.slice().sort((a, b) => a.rank - b.rank).slice(0, 8);
+        const key = extraKey || activeKey || "";
+        const kRow = key ? lastRenderByKey.get(key) : null;
+        const aSum = key ? getAnchorSummaryForKey(anchors, key) : null;
+        const lines = [];
+        lines.push(`RWSPF v9 | build 29/12/2025-9`);
+        lines.push(`saved=${serverCache.size} parsed=${rawCount} shown=${qRows.length} (db=${dbReady ? "ok" : "no"})`);
+        lines.push(`cfg: period=${cfg.periodHours}h jitter=0-${cfg.jitterMaxMin}m prep=${Math.min(cfg.winMin, cfg.winMax)}-${Math.max(cfg.winMin, cfg.winMax)}m model=${cfg.modelMode} requireNight=${cfg.requireNight}`);
+        lines.push(`timing: delaySec=${cfg.captureDelaySec} autoCapture=${cfg.autoSetCaptureTime} capture=${captureTimeEl.value || "(auto)"}`);
+        lines.push(`filter: "${(quickFilterEl.value || filterBoxEl.value || "").trim()}"`);
+        lines.push(`ocr: lastRows=${lastOcrResult.rows} at=${lastOcrResult.atMs ? fmtLocal(lastOcrResult.atMs) : "(none)"} msg=${lastOcrResult.msg || "(none)"}`);
+        if (check.length) {
+          lines.push(`CHECK:`);
+          for (const r of check) {
+            const next = r.model.inWindow ? "NOW" : (r.model.nextStartSec != null ? dur(r.model.nextStartSec) : "?");
+            lines.push(`- ${r.server} clk=${r.clockText || "?"} up=${r.uptimeText} next=${next} w=${r.whisperState}`);
+          }
+        } else {
+          lines.push(`CHECK: (none)`);
+        }
+        if (top.length) {
+          lines.push(`TOP:`);
+          for (const r of top) {
+            const next = r.model.inWindow ? "NOW" : (r.model.nextStartSec != null ? dur(r.model.nextStartSec) : "?");
+            lines.push(`- ${r.status.tag} ${r.server} next=${next} w=${r.whisperState}`);
+          }
+        }
+        if (key && kRow) {
+          lines.push(`ACTIVE: ${kRow.server} key=${key}`);
+          if (aSum) lines.push(`ANCHOR: ${aSum.pill}`);
+        } else if (key) {
+          lines.push(`ACTIVE: key=${key} (not in current render)`);
+        } else {
+          lines.push(`ACTIVE: (none)`);
+        }
+        return lines.join("\n");
+      }
+      async function copyDebugDump(extraKey) {
+        await writeClipboard(makeDebugDump(extraKey));
+      }
+      // -----------------------------
+      // Drawer (updates panel)
+      // -----------------------------
+      function openDrawerForKey(key) {
+        if (!key) return;
+        activeKey = key;
+        const row = lastRenderByKey.get(key);
+        const rec = serverCache.get(key);
+        const name = row ? row.server : (rec ? rec.server : "—");
+        const sub = row ?
+          `${row.region || "?"}${row.players ? ` • ${row.players}` : ""}${row.map ? ` • ${row.map}` : ""}` :
+          (rec ? `${rec.region || "?"}${rec.players ? ` • ${rec.players}` : ""}${rec.map ? ` • ${rec.map}` : ""}` : "—");
+        drawerTitleEl.textContent = name;
+        drawerSubEl.textContent = sub;
+        drawerBackdrop.classList.remove("hidden");
+        drawerBackdrop.setAttribute("aria-hidden", "false");
+        // badges + info
+        const anchors = loadAnchors();
+        const cfg = buildConfig();
+        const aSum = getAnchorSummaryForKey(anchors, key);
+        const badges = [];
+        if (row) {
+          badges.push(pillForStatus(row.status.tag));
+          badges.push(pillForNight(row.night));
+          badges.push(`<span class="pill pillDim"><span class="pip"></span>model ${esc(row.model.short)}</span>`);
+          badges.push(`<span class="pill pillDim"><span class="pip"></span>next ${esc(row.model.inWindow ? "NOW" : (row.model.nextStartSec != null ? dur(row.model.nextStartSec) : "?"))}</span>`);
+          badges.push(`<span class="pill pillDim"><span class="pip"></span>whisper ${esc(whisperStateToGlyph(row.whisperState))}</span>`);
+        }
+        if (aSum && aSum.pill) badges.push(`<span class="pill pillDim"><span class="pip"></span>anchor ${esc(aSum.pill)}</span>`);
+        drawerBadgesEl.innerHTML = badges.join(" ");
+        if (row) {
+          const tzFmt = formatTZ(row, cfg);
+          drawerInfoEl.textContent =
+            `clk=${row.clockText || "?"} up=${row.uptimeText} • obs=${row.observedAtText} • start=${row.estStartLocal}` +
+            (row.version ? ` • v${row.version}` : "") +
+            (cfg.clockBase !== "serverLocal" ? ` • tz=${tzFmt.text}${tzFmt.sub ? " " + tzFmt.sub : ""}` : "");
+        } else {
+          drawerInfoEl.textContent = "No live row for this key right now (it may be filtered out).";
+        }
+        refreshActiveUI(cfg, anchors);
+        // fetch updates
+        loadAndRenderUpdates(key);
+      }
+      async function loadAndRenderUpdates(key) {
+        updatesListEl.innerHTML = `<div class="mini">Loading…</div>`;
+        updatesHintEl.textContent = "";
+        const items = await idbGetUpdatesForKey(key, 50);
+        if (!items.length) {
+          updatesListEl.innerHTML = `<div class="mini">No updates yet for this server key.</div>`;
+          updatesHintEl.textContent = "Updates appear when you ingest rows/OCR or click ☐/✅/❌.";
+          return;
+        }
+        updatesListEl.innerHTML = items.map(u => {
+          const when = u.atMs ? fmtLocal(u.atMs) : "—";
+          const src = `${u.source || "?"}${u.ingestId ? ` • ${u.ingestId}` : ""}`;
+          const changes = u.changes ? Object.keys(u.changes).join(",") : "";
+          const snap = u.snap ? JSON.stringify(u.snap) : "";
+          const body = `${changes ? `changes: ${changes}\n` : ""}${snap ? `snap: ${snap}` : ""}`.trim();
+          return `
+            <div class="uItem">
+              <div class="uTop">
+                <div class="when mono">${esc(when)}</div>
+                <div class="src mono">${esc(src)}</div>
+              </div>
+              <div class="uBody mono">${esc(body || "(no details)")}</div>
+            </div>
+          `;
+        }).join("");
+        updatesHintEl.textContent = `Showing newest ${items.length}.`;
+      }
+
+      function closeDrawer() {
+        drawerBackdrop.classList.add("hidden");
+        drawerBackdrop.setAttribute("aria-hidden", "true");
+      }
+      // -----------------------------
+      // Export / Import
+      // -----------------------------
+      function setDataMsg(s) {
+        dataMsgEl.textContent = String(s || "");
+      }
+      async function exportJson() {
+        const payload = {
+          kind: "rwspf_export",
+          version: 9,
+          exportedAtMs: Date.now(),
+          settings: getUiStateObject(),
+          anchors: loadAnchors(),
+          servers: await idbAll(STORE_SERVERS),
+          updates: await idbAll(STORE_UPDATES)
+        };
+        const text = JSON.stringify(payload, null, 2);
+        const blob = new Blob([text], {
+          type: "application/json"
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `rwspf_export_v9_${Date.now()}.json`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 8000);
+        setDataMsg(`Exported JSON (${payload.servers.length} servers, ${payload.updates.length} updates).`);
+      }
+
+      function isValidImport(obj) {
+        if (!obj || typeof obj !== "object") return false;
+        if (obj.kind !== "rwspf_export") return false;
+        if (!Array.isArray(obj.servers)) return false;
+        if (!Array.isArray(obj.updates)) return false;
+        if (!obj.anchors || typeof obj.anchors !== "object") return false;
+        if (!obj.settings || typeof obj.settings !== "object") return false;
+        return true;
+      }
+      async function applyImport(obj, mode) {
+        mode = mode || "replace";
+        const replace = (mode === "replace");
+        if (replace) {
+          await idbClear(STORE_SERVERS);
+          await idbClear(STORE_UPDATES);
+          serverCache.clear();
+          anchorClearAll();
+        }
+        // anchors
+        try {
+          const anchors = obj.anchors;
+          if (anchors && typeof anchors === "object") saveAnchors(anchors);
+        } catch {}
+        // settings
+        try {
+          const st = obj.settings;
+          if (st && typeof st === "object") applyUiStateObject(st);
+        } catch {}
+        // servers
+        const servers = Array.isArray(obj.servers) ? obj.servers : [];
+        for (const s of servers) {
+          if (!s || !s.key) continue;
+          mergeServerIntoCache(s);
+          await idbPut(STORE_SERVERS, s);
+        }
+        // updates (bulk-add; keep safe)
+        const updates = Array.isArray(obj.updates) ? obj.updates : [];
+        for (const u of updates) {
+          if (!u || !u.key) continue;
+          // preserve original timestamps if present
+          await idbAdd(STORE_UPDATES, {
+            key: u.key,
+            atMs: Number(u.atMs || Date.now()),
+            ingestId: String(u.ingestId || "import"),
+            source: String(u.source || "import"),
+            changes: u.changes || {},
+            snap: u.snap || {}
+          });
+        }
+        setDataMsg(`Imported (${replace ? "replace" : "merge"}): ${servers.length} servers, ${updates.length} updates.`);
+      }
+      // -----------------------------
+      // UI state object (settings export)
+      // -----------------------------
+      function getUiStateObject() {
+        return {
+          periodHours: periodHoursEl.value,
+          jitterMax: jitterMaxEl.value,
+          winMin: winMinEl.value,
+          winMax: winMaxEl.value,
+          modelMode: modelModeEl.value,
+          clockAnchor: clockAnchorEl.value,
+          clockBase: clockBaseEl.value,
+          nightRange: nightRangeEl.value,
+          requireNight: requireNightEl.value,
+          showMode: showModeEl.value,
+          sortMode: sortModeEl.value,
+          omitCity13: omitCity13El.value,
+          omitMax12: omitMax12El.value,
+          picksCount: picksCountEl.value,
+          captureDelaySec: captureDelaySecEl.value,
+          autoSetCaptureTime: autoSetCaptureTimeEl.value,
+          captureTime: captureTimeEl.value,
+          tzToleranceMin: tzToleranceEl.value,
+          inputBox: inputBoxEl.value,
+          quickFilter: quickFilterEl.value,
+          filterBox: filterBoxEl.value
+        };
+      }
+
+      function applyUiStateObject(saved) {
+        if (!saved) return;
+        periodHoursEl.value = saved.periodHours ?? String(DEFAULTS.periodHours);
+        jitterMaxEl.value = saved.jitterMax ?? String(DEFAULTS.jitterMaxMin);
+        winMinEl.value = saved.winMin ?? String(DEFAULTS.winMin);
+        winMaxEl.value = saved.winMax ?? String(DEFAULTS.winMax);
+        modelModeEl.value = saved.modelMode ?? DEFAULTS.modelMode;
+        clockAnchorEl.value = saved.clockAnchor ?? DEFAULTS.clockAnchor;
+        clockBaseEl.value = saved.clockBase ?? DEFAULTS.clockBase;
+        nightRangeEl.value = saved.nightRange ?? DEFAULTS.nightRange;
+        requireNightEl.value = saved.requireNight ?? (DEFAULTS.requireNight ? "true" : "false");
+        showModeEl.value = saved.showMode ?? DEFAULTS.showMode;
+        sortModeEl.value = saved.sortMode ?? DEFAULTS.sortMode;
+        omitCity13El.value = saved.omitCity13 ?? (DEFAULTS.omitCity13 ? "true" : "false");
+        omitMax12El.value = saved.omitMax12 ?? (DEFAULTS.omitMax12 ? "true" : "false");
+        picksCountEl.value = saved.picksCount ?? String(DEFAULTS.picksCount);
+        captureDelaySecEl.value = saved.captureDelaySec ?? String(DEFAULTS.captureDelaySec);
+        autoSetCaptureTimeEl.value = saved.autoSetCaptureTime ?? (DEFAULTS.autoSetCaptureTime ? "true" : "false");
+        captureTimeEl.value = saved.captureTime ?? "";
+        tzToleranceEl.value = saved.tzToleranceMin ?? String(DEFAULTS.tzToleranceMin);
+        inputBoxEl.value = saved.inputBox ?? "";
+        quickFilterEl.value = saved.quickFilter ?? "";
+        filterBoxEl.value = saved.filterBox ?? "";
+        // Persist immediately in localStorage v9 format
+        try {
+          localStorage.setItem(LS_STATE, JSON.stringify(getUiStateObject()));
+        } catch {}
+      }
+      // -----------------------------
+      // Render all
+      // -----------------------------
+      async function renderAll() {
+        const cfg = buildConfig();
+        const anchors = loadAnchors();
+        // ingest (async, but we can await so UI is consistent)
+        await ingestInputIfChanged(cfg, anchors);
+        const {
+          rows,
+          rawCount
+        } = calcAll();
+        lastRenderRows = rows.slice();
+        lastRenderByKey = new Map(rows.map(r => [r.key, r]));
+        // apply quick filter to displayed areas
+        const rowsFiltered = applyQuickFilter(rows);
+        renderStatusLine(rowsFiltered, cfg, rawCount);
+        renderPicks(rowsFiltered, cfg);
+        renderTable(rowsFiltered, cfg);
+        refreshActiveUI(cfg, anchors);
+        saveStateIfChanged();
+      }
+      // -----------------------------
+      // OCR (multi-pass preprocess + word clustering) — carried over from v8
+      // -----------------------------
+      let lastImageBlob = null;
+      let lastImageUrl = "";
+      let workerPromise = null;
+
+      function setOcrStatus(txt) {
+        ocrPill.textContent = `OCR: ${txt}`;
+      }
+
+      function setOcrMsg(txt) {
+        ocrMsg.textContent = txt || "";
+      }
+
+      function clearLastImage() {
+        lastImageBlob = null;
+        if (lastImageUrl) URL.revokeObjectURL(lastImageUrl);
+        lastImageUrl = "";
+        ocrImg.classList.add("hidden");
+        ocrImg.src = "";
+        ocrRowsPill.textContent = "0 rows";
+        setOcrStatus("idle");
+        setOcrMsg("");
+      }
+
+      function setLastImage(blob) {
+        lastImageBlob = blob;
+        if (lastImageUrl) URL.revokeObjectURL(lastImageUrl);
+        lastImageUrl = URL.createObjectURL(blob);
+        ocrImg.src = lastImageUrl;
+        ocrImg.classList.remove("hidden");
+      }
+      async function ensureWorker() {
+        if (workerPromise) return workerPromise;
+        workerPromise = (async () => {
+          setOcrStatus("booting");
+          setOcrMsg("Booting OCR worker (first run downloads engine)…");
+          const {
+            createWorker
+          } = Tesseract;
+          const w = await createWorker("eng", 1, {
+            logger: (m) => {
+              if (!m || !m.status) return;
+              if (m.progress != null) {
+                const pct = Math.floor(m.progress * 100);
+                setOcrStatus(`${m.status} ${pct}%`);
+              } else {
+                setOcrStatus(m.status);
+              }
+            }
+          });
+          await w.setParameters({
+            preserve_interword_spaces: "1",
+            user_defined_dpi: "300",
+            tessedit_pageseg_mode: "11"
+          });
+          setOcrStatus("ready");
+          setOcrMsg("OCR ready.");
+          return w;
+        })();
+        return workerPromise;
+      }
+
+      function fileToBitmap(blob) {
+        return new Promise((resolve, reject) => {
+          const url = URL.createObjectURL(blob);
+          const img = new Image();
+          img.decoding = "async";
+          img.onload = async () => {
+            try {
+              const bmp = await createImageBitmap(img);
+              URL.revokeObjectURL(url);
+              resolve(bmp);
+            } catch (e) {
+              URL.revokeObjectURL(url);
+              reject(e);
+            }
+          };
+          img.onerror = (e) => {
+            URL.revokeObjectURL(url);
+            reject(e);
+          };
+          img.src = url;
+        });
+      }
+
+      function dilateBlackText1px(data, w, h, passes) {
+        passes = Math.max(1, Math.floor(passes));
+        const idx = (x, y) => (y * w + x) * 4;
+        for (let p = 0; p < passes; p++) {
+          const src = new Uint8ClampedArray(data);
+          for (let y = 1; y < h - 1; y++) {
+            for (let x = 1; x < w - 1; x++) {
+              const i = idx(x, y);
+              const v = src[i];
+              if (v === 0) continue;
+              let makeBlack = false;
+              for (let oy = -1; oy <= 1 && !makeBlack; oy++) {
+                for (let ox = -1; ox <= 1; ox++) {
+                  if (ox === 0 && oy === 0) continue;
+                  const j = idx(x + ox, y + oy);
+                  if (src[j] === 0) {
+                    makeBlack = true;
+                    break;
+                  }
+                }
+              }
+              if (makeBlack) data[i] = data[i + 1] = data[i + 2] = 0;
+            }
+          }
+        }
+      }
+
+      function drawPreprocess(bitmap, opts) {
+        opts = opts || {};
+        const scale = Number(opts.scale ?? 2.6);
+        const invert = !!opts.invert;
+        const thresholdOn = !!opts.threshold;
+        const addBorder = (opts.border !== false);
+        const smooth = (opts.smooth !== undefined) ? !!opts.smooth : !thresholdOn;
+        const contrast = Number(opts.contrast ?? (thresholdOn ? 1.85 : 1.60));
+        const thresh = Number(opts.thresh ?? (thresholdOn ? 150 : 165));
+        const dilateBlack = Number(opts.dilateBlackPx ?? (thresholdOn && invert ? 1 : 0));
+        const cw = Math.max(1, Math.floor(bitmap.width * scale));
+        const ch = Math.max(1, Math.floor(bitmap.height * scale));
+        const pad = addBorder ? Math.max(12, Math.floor(Math.min(cw, ch) * 0.012)) : 0;
+        const c = document.createElement("canvas");
+        c.width = cw + pad * 2;
+        c.height = ch + pad * 2;
+        const ctx = c.getContext("2d", {
+          willReadFrequently: true
+        });
+        if (pad > 0) {
+          ctx.fillStyle = "#ffffff";
+          ctx.fillRect(0, 0, c.width, c.height);
+        }
+        ctx.imageSmoothingEnabled = smooth;
+        ctx.imageSmoothingQuality = smooth ? "high" : "low";
+        ctx.drawImage(bitmap, 0, 0, bitmap.width, bitmap.height, pad, pad, cw, ch);
+        const imd = ctx.getImageData(0, 0, c.width, c.height);
+        const d = imd.data;
+        for (let i = 0; i < d.length; i += 4) {
+          const r = d[i],
+            g = d[i + 1],
+            b = d[i + 2];
+          let y = (0.299 * r + 0.587 * g + 0.114 * b);
+          y = (y - 128) * contrast + 128;
+          if (invert) y = 255 - y;
+          if (thresholdOn) y = (y >= thresh) ? 255 : 0;
+          y = Math.max(0, Math.min(255, y));
+          d[i] = d[i + 1] = d[i + 2] = y;
+          d[i + 3] = 255;
+        }
+        if (dilateBlack > 0 && thresholdOn && invert) {
+          dilateBlackText1px(d, c.width, c.height, dilateBlack);
+        }
+        ctx.putImageData(imd, 0, 0);
+        return c;
+      }
+      async function ocrPass(worker, canvas, params) {
+        params = params || {};
+        const psm = String(params.psm ?? "11");
+        const whitelist = String(params.whitelist ?? "");
+        await worker.setParameters({
+          preserve_interword_spaces: "1",
+          user_defined_dpi: "300",
+          tessedit_pageseg_mode: psm,
+          ...(whitelist ? {
+            tessedit_char_whitelist: whitelist
+          } : {})
+        });
+        const ret = await worker.recognize(canvas);
+        const words = (ret && ret.data && ret.data.words) ? ret.data.words : [];
+        const text = (ret && ret.data && ret.data.text) ? ret.data.text : "";
+        return {
+          words,
+          text
+        };
+      }
+
+      function clusterLinesFromWords(words, canvasW) {
+        const keepRe = /(\bNA\b|\bEU\b|\bAS\b|\bSA\b|\bOC\b|\d{1,2}\s*\/\s*\d{1,2}|\d+[:.]\d{2}[:.]\d{2}|\b\d{6}\b|Premium|Prem|Prenium|Premiun|Official|Off|Veteran|Vet|#|\[Map:|Map:|\d+\.\d+|0525|525|[0-9a-f]{6,}(?:-[0-9a-f]{2,}){2,})/i;
+        const clean = (words || [])
+          .filter(w => w && w.text && String(w.text).trim())
+          .map(w => {
+            const text = String(w.text).trim();
+            const conf = (typeof w.confidence === "number") ? w.confidence : 100;
+            const bb = w.bbox || {};
+            const x0 = bb.x0 ?? 0,
+              x1 = bb.x1 ?? 0,
+              y0 = bb.y0 ?? 0,
+              y1 = bb.y1 ?? 0;
+            const ym = (y0 + y1) / 2;
+            const h = Math.max(1, (y1 - y0));
+            if (conf < 0 && !keepRe.test(text)) return null;
+            return {
+              text,
+              conf,
+              x0,
+              x1,
+              y0,
+              y1,
+              ym,
+              h
+            };
+          })
+          .filter(Boolean);
+        if (!clean.length) return [];
+        const hs = clean.map(w => w.h).sort((a, b) => a - b);
+        const medH = hs[Math.floor(hs.length / 2)] || 14;
+        const lineTol = Math.max(7, Math.floor(medH * 0.70));
+        clean.sort((a, b) => a.ym - b.ym);
+        const lines = [];
+        for (const w of clean) {
+          let line = null;
+          for (let i = lines.length - 1; i >= 0; i--) {
+            if (Math.abs(lines[i].ym - w.ym) <= lineTol) {
+              line = lines[i];
+              break;
+            }
+            if (lines[i].ym < w.ym - lineTol * 2.2) break;
+          }
+          if (!line) {
+            line = {
+              ym: w.ym,
+              y0: w.y0,
+              y1: w.y1,
+              items: []
+            };
+            lines.push(line);
+          }
+          line.items.push(w);
+          line.y0 = Math.min(line.y0, w.y0);
+          line.y1 = Math.max(line.y1, w.y1);
+          line.ym = (line.ym * (line.items.length - 1) + w.ym) / line.items.length;
+        }
+        for (const ln of lines) {
+          ln.items.sort((a, b) => a.x0 - b.x0);
+          ln.text = ln.items.map(it => it.text).join(" ");
+          ln.textNorm = normalizeText(ln.text);
+          ln.leftX = ln.items.length ? ln.items[0].x0 : 999999;
+        }
+        const leftCut = canvasW * 0.42;
+        const anchors = [];
+        for (let i = 0; i < lines.length; i++) {
+          const leftish = (lines[i].leftX <= leftCut);
+          if (!leftish) continue;
+          if (parseServerLine(lines[i].textNorm)) anchors.push(i);
+        }
+        const blocks = [];
+        for (let ai = 0; ai < anchors.length; ai++) {
+          const start = anchors[ai];
+          const end = (ai + 1 < anchors.length) ? anchors[ai + 1] : lines.length;
+          const blockText = lines.slice(start, end).map(x => x.text).join(" ");
+          blocks.push(normalizeText(blockText));
+        }
+        const rows = [];
+        for (const b of blocks) {
+          const row = parseRowFromLine(b);
+          if (row) rows.push(row);
+        }
+        return rows;
+      }
+
+      function rowsToCleanText(rows) {
+        return rows.map(r => {
+          const parts = [];
+          parts.push(r.server);
+          if (r.map) parts.push(`[Map: ${r.map}]`);
+          if (r.region) parts.push(r.region);
+          if (r.players) parts.push(r.players);
+          if (r.clock) parts.push(r.clock.text);
+          if (r.uptime) parts.push(r.uptime.text);
+          if (r.version) parts.push(r.version);
+          return parts.join(" ");
+        }).join("\n");
+      }
+
+      function appendIntoInput(text, sourceTag) {
+        const cur = splitLines(inputBoxEl.value || "");
+        const seen = new Set(cur.map(l => normalizeText(l).toLowerCase()));
+        const add = splitLines(text || "");
+        const out = cur.slice();
+        for (const ln of add) {
+          const k = normalizeText(ln).toLowerCase();
+          if (seen.has(k)) continue;
+          seen.add(k);
+          out.push(ln);
+        }
+        inputBoxEl.value = out.join("\n");
+        // Set ingest source for next render pass
+        if (sourceTag) nextIngestSource = sourceTag;
+      }
+
+      function setCaptureTimeFromNowMinusDelaySec(delaySec) {
+        const d = new Date(Date.now() - Math.max(0, Math.floor(delaySec || 0)) * 1000);
+        d.setSeconds(0, 0);
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, "0");
+        const dd = String(d.getDate()).padStart(2, "0");
+        const hh = String(d.getHours()).padStart(2, "0");
+        const mi = String(d.getMinutes()).padStart(2, "0");
+        captureTimeEl.value = `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
+      }
+      async function runOcr() {
+        if (!lastImageBlob) {
+          setOcrMsg("No image yet. Paste/drop one first.");
+          return;
+        }
+        try {
+          setOcrStatus("prep");
+          setOcrMsg("Preparing image…");
+          const cfg = buildConfig();
+          if (cfg.autoSetCaptureTime) setCaptureTimeFromNowMinusDelaySec(cfg.captureDelaySec);
+          const worker = await ensureWorker();
+          const bmp = await fileToBitmap(lastImageBlob);
+          const WL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789#[]():/.- ";
+          const canvA = drawPreprocess(bmp, {
+            scale: 2.6,
+            invert: false,
+            threshold: false,
+            border: true
+          });
+          const canvB = drawPreprocess(bmp, {
+            scale: 2.8,
+            invert: true,
+            threshold: true,
+            border: true,
+            smooth: false,
+            thresh: 145,
+            contrast: 1.90,
+            dilateBlackPx: 1
+          });
+          const canvC = drawPreprocess(bmp, {
+            scale: 2.8,
+            invert: true,
+            threshold: true,
+            border: true,
+            smooth: false,
+            thresh: 160,
+            contrast: 1.90,
+            dilateBlackPx: 1
+          });
+          setOcrStatus("reading");
+          setOcrMsg("OCR pass A…");
+          const A = await ocrPass(worker, canvA, {
+            psm: "11",
+            whitelist: WL
+          });
+          setOcrStatus("reading");
+          setOcrMsg("OCR pass B…");
+          const B = await ocrPass(worker, canvB, {
+            psm: "11",
+            whitelist: WL
+          });
+          setOcrStatus("reading");
+          setOcrMsg("OCR pass C…");
+          const C = await ocrPass(worker, canvC, {
+            psm: "11",
+            whitelist: WL
+          });
+          const rowsA = clusterLinesFromWords(A.words, canvA.width);
+          const rowsB = clusterLinesFromWords(B.words, canvB.width);
+          const rowsC = clusterLinesFromWords(C.words, canvC.width);
+          const passes = [{
+            name: "A",
+            rows: rowsA
+          }, {
+            name: "B",
+            rows: rowsB
+          }, {
+            name: "C",
+            rows: rowsC
+          }];
+          const byServer = new Map();
+          for (const p of passes) {
+            for (const r of p.rows) {
+              if (!r || !r.server || !r.uptime) continue;
+              if (!byServer.has(r.server)) byServer.set(r.server, []);
+              byServer.get(r.server).push({
+                pass: p.name,
+                row: r
+              });
+            }
+          }
+          const merged = [];
+          for (const [server, list] of byServer.entries()) {
+            list.sort((a, b) => {
+              const aa = (a.row.clock ? 1 : 0) + (a.row.players ? 1 : 0) + (a.row.version ? 1 : 0) + (a.row.map ? 1 : 0);
+              const bb = (b.row.clock ? 1 : 0) + (b.row.players ? 1 : 0) + (b.row.version ? 1 : 0) + (b.row.map ? 1 : 0);
+              if (bb !== aa) return bb - aa;
+              const pref = (x) => x === "A" ? 0 : x === "B" ? 1 : 2;
+              return pref(a.pass) - pref(b.pass);
+            });
+            merged.push(list[0].row);
+          }
+          merged.sort((a, b) => {
+            const an = Number(String(a.server).match(/#(\d+)/)?.[1] || "999999");
+            const bn = Number(String(b.server).match(/#(\d+)/)?.[1] || "999999");
+            return an - bn;
+          });
+          ocrRowsPill.textContent = `${merged.length} rows`;
+          lastOcrResult = {
+            rows: merged.length,
+            atMs: Date.now(),
+            msg: merged.length ? "ok" : "0 rows"
+          };
+          if (!merged.length) {
+            setOcrStatus("0 rows");
+            setOcrMsg("OCR ran but extracted 0 full rows. Crop tighter to the list or hide overlays.");
+            await renderAll();
+            return;
+          }
+          appendIntoInput(rowsToCleanText(merged), "ocr");
+          setOcrStatus("done");
+          setOcrMsg(`OCR done. Injected ${merged.length} clean row(s).`);
+          await renderAll();
+        } catch (e) {
+          console.error(e);
+          setOcrStatus("error");
+          setOcrMsg(`OCR error: ${String(e && e.message ? e.message : e)}`);
+          lastOcrResult = {
+            rows: 0,
+            atMs: Date.now(),
+            msg: "error"
+          };
+          await renderAll();
+        }
+      }
+
+      function handleImageBlob(blob) {
+        if (!blob) return;
+        setLastImage(blob);
+        runOcr();
+      }
+
+      function onPaste(e) {
+        const dt = e.clipboardData;
+        if (!dt || !dt.items) return;
+        const items = Array.from(dt.items);
+        const imgItem = items.find(it => it.type && it.type.startsWith("image/"));
+        if (!imgItem) return;
+        e.preventDefault();
+        const blob = imgItem.getAsFile();
+        if (blob) handleImageBlob(blob);
+      }
+
+      function onDragOver(e) {
+        e.preventDefault();
+        dropZone.classList.add("dragOn");
+      }
+
+      function onDragLeave() {
+        dropZone.classList.remove("dragOn");
+      }
+
+      function onDrop(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.remove("dragOn");
+        const dt = e.dataTransfer;
+        if (!dt) return;
+        const files = Array.from(dt.files || []);
+        const img = files.find(f => f.type && f.type.startsWith("image/"));
+        if (img) handleImageBlob(img);
+      }
+      // -----------------------------
+      // Events
+      // -----------------------------
+      runBtn.addEventListener("click", async () => {
+        pulse(runBtn);
+        await renderAll();
+      });
+      copyCheckBtn.addEventListener("click", () => {
+        pulse(copyCheckBtn);
+        copyCheck();
+      });
+      copyPicksBtn.addEventListener("click", () => {
+        pulse(copyPicksBtn);
+        copyPicks();
+      });
+      copyDebugBtn.addEventListener("click", () => {
+        pulse(copyDebugBtn);
+        copyDebugDump("");
+      });
+      copyCheckMini.addEventListener("click", () => {
+        pulse(copyCheckMini);
+        copyCheck();
+      });
+      copyPicksMini.addEventListener("click", () => {
+        pulse(copyPicksMini);
+        copyPicks();
+      });
+      // Pick clicks: open drawer OR toggle "more"
+      picksEl.addEventListener("click", (e) => {
+        const t = e.target;
+        // whisper toggle
+        const w = t.closest(".wToggle");
+        if (w) {
+          const key = w.getAttribute("data-key");
+          if (key) cycleWhisperForKey(key);
+          e.stopPropagation();
+          return;
+        }
+        // "more" toggle
+        const more = t.closest("[data-pick-toggle]");
+        if (more) {
+          const pick = t.closest(".pick");
+          if (pick) pick.classList.toggle("open");
+          e.stopPropagation();
+          return;
+        }
+        const pick = t.closest(".pick");
+        if (!pick) return;
+        const key = pick.getAttribute("data-key");
+        if (key) openDrawerForKey(key);
+      });
+      // Table clicks
+      tbodyEl.addEventListener("click", (e) => {
+        const t = e.target;
+        const w = t.closest(".wToggle");
+        if (w) {
+          const key = w.getAttribute("data-key");
+          if (key) cycleWhisperForKey(key);
+          e.stopPropagation();
+          return;
+        }
+        const tr = t.closest("tr[data-key]");
+        if (!tr) return;
+        const key = tr.getAttribute("data-key");
+        if (key) openDrawerForKey(key);
+      });
+      // Filters
+      quickFilterEl.addEventListener("input", () => renderAll());
+      filterBoxEl.addEventListener("input", () => renderAll());
+      // Options live-update
+      const liveEls = [
+        periodHoursEl, jitterMaxEl, winMinEl, winMaxEl, modelModeEl, clockAnchorEl, clockBaseEl,
+        nightRangeEl, requireNightEl, showModeEl, sortModeEl, omitCity13El, omitMax12El,
+        picksCountEl, captureDelaySecEl, autoSetCaptureTimeEl, captureTimeEl, tzToleranceEl, inputBoxEl
+      ].filter(Boolean);
+      let tDeb = 0;
+
+      function scheduleRender() {
+        clearTimeout(tDeb);
+        tDeb = setTimeout(renderAll, 80);
+      }
+      liveEls.forEach(el => {
+        el.addEventListener("input", scheduleRender);
+        el.addEventListener("change", scheduleRender);
+      });
+      // OCR events
+      document.addEventListener("paste", onPaste);
+      dropZone.addEventListener("dragover", onDragOver);
+      dropZone.addEventListener("dragleave", onDragLeave);
+      dropZone.addEventListener("drop", onDrop);
+      chooseBtn.addEventListener("click", () => {
+        pulse(chooseBtn);
+        fileInput.click();
+      });
+      fileInput.addEventListener("change", () => {
+        const f = fileInput.files && fileInput.files[0];
+        if (f) handleImageBlob(f);
+        fileInput.value = "";
+      });
+      ocrBtn.addEventListener("click", () => {
+        pulse(ocrBtn);
+        runOcr();
+      });
+      ocrClearBtn.addEventListener("click", () => {
+        pulse(ocrClearBtn);
+        clearLastImage();
+      });
+      // Anchors buttons
+      anchorSawBtn.addEventListener("click", async () => {
+        pulse(anchorSawBtn);
+        if (!activeKey) return;
+        await setWhisperStateForKey(activeKey, 1);
+      });
+      anchorNoBtn.addEventListener("click", async () => {
+        pulse(anchorNoBtn);
+        if (!activeKey) return;
+        await setWhisperStateForKey(activeKey, 2);
+      });
+      anchorClearBtn.addEventListener("click", async () => {
+        pulse(anchorClearBtn);
+        if (!activeKey) return;
+        const anchors = loadAnchors();
+        anchorClear(anchors, activeKey);
+        saveAnchors(anchors);
+        await idbAdd(STORE_UPDATES, {
+          key: activeKey,
+          atMs: Date.now(),
+          ingestId: "anchor-clear",
+          source: "user",
+          changes: {
+            anchor: true
+          },
+          snap: {
+            cleared: true
+          }
+        });
+        await renderAll();
+      });
+      anchorCopyBtn.addEventListener("click", async () => {
+        pulse(anchorCopyBtn);
+        const anchors = loadAnchors();
+        await writeClipboard(anchorsToText(anchors) || "(anchors empty)");
+      });
+      anchorClearAllBtn.addEventListener("click", async () => {
+        pulse(anchorClearAllBtn);
+        anchorClearAll();
+        await idbAdd(STORE_UPDATES, {
+          key: activeKey || "(none)",
+          atMs: Date.now(),
+          ingestId: "anchors-clear-all",
+          source: "user",
+          changes: {
+            anchors: true
+          },
+          snap: {
+            clearedAll: true
+          }
+        });
+        await renderAll();
+      });
+      anchorMsgBtn.addEventListener("click", () => {
+        pulse(anchorMsgBtn);
+        const anchors = loadAnchors();
+        const sum = getAnchorSummaryForKey(anchors, activeKey);
+        anchorMsgEl.textContent = sum.text || "(no anchor info)";
+      });
+      // Data buttons
+      exportBtn.addEventListener("click", async () => {
+        pulse(exportBtn);
+        await exportJson();
+      });
+      importBtn.addEventListener("click", () => {
+        pulse(importBtn);
+        importFile.click();
+      });
+      importFile.addEventListener("change", async () => {
+        const f = importFile.files && importFile.files[0];
+        importFile.value = "";
+        if (!f) return;
+        try {
+          const text = await f.text();
+          const obj = JSON.parse(text);
+          if (!isValidImport(obj)) {
+            setDataMsg("Import failed: not a valid rwspf_export JSON.");
+            return;
+          }
+          const mode = String(importModeEl.value || "replace");
+          await applyImport(obj, mode);
+          await renderAll();
+        } catch (e) {
+          setDataMsg(`Import error: ${String(e && e.message ? e.message : e)}`);
+        }
+      });
+      resetBtn.addEventListener("click", async () => {
+        pulse(resetBtn);
+        const ok = confirm("Reset ALL data? This wipes servers + updates + anchors + UI state.");
+        if (!ok) return;
+        await idbClear(STORE_SERVERS);
+        await idbClear(STORE_UPDATES);
+        serverCache.clear();
+        anchorClearAll();
+        try {
+          localStorage.removeItem(LS_STATE);
+        } catch {}
+        try {
+          localStorage.removeItem(LS_STATE_OLD_V8);
+        } catch {}
+        activeKey = "";
+        setDataMsg("Reset complete.");
+        await renderAll();
+      });
+      clearUiBtn.addEventListener("click", async () => {
+        pulse(clearUiBtn);
+        inputBoxEl.value = "";
+        quickFilterEl.value = "";
+        filterBoxEl.value = "";
+        setDataMsg("Cleared input + filters (saved DB remains).");
+        await renderAll();
+      });
+      // Drawer events
+      drawerCloseBtn.addEventListener("click", () => {
+        pulse(drawerCloseBtn);
+        closeDrawer();
+      });
+      drawerBackdrop.addEventListener("click", (e) => {
+        if (e.target === drawerBackdrop) closeDrawer();
+      });
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") closeDrawer();
+        if ((e.ctrlKey || e.metaKey) && e.key === "Enter") renderAll();
+      });
+      drawerSawBtn.addEventListener("click", async () => {
+        pulse(drawerSawBtn);
+        if (activeKey) await setWhisperStateForKey(activeKey, 1);
+      });
+      drawerNoBtn.addEventListener("click", async () => {
+        pulse(drawerNoBtn);
+        if (activeKey) await setWhisperStateForKey(activeKey, 2);
+      });
+      drawerToggleBtn.addEventListener("click", async () => {
+        pulse(drawerToggleBtn);
+        if (activeKey) await cycleWhisperForKey(activeKey);
+      });
+      drawerClearAnchorBtn.addEventListener("click", async () => {
+        pulse(drawerClearAnchorBtn);
+        if (!activeKey) return;
+        const anchors = loadAnchors();
+        anchorClear(anchors, activeKey);
+        saveAnchors(anchors);
+        await idbAdd(STORE_UPDATES, {
+          key: activeKey,
+          atMs: Date.now(),
+          ingestId: "anchor-clear",
+          source: "user",
+          changes: {
+            anchor: true
+          },
+          snap: {
+            cleared: true
+          }
+        });
+        await renderAll();
+        await loadAndRenderUpdates(activeKey);
+      });
+      drawerCopyDebugBtn.addEventListener("click", async () => {
+        pulse(drawerCopyDebugBtn);
+        await copyDebugDump(activeKey);
+      });
+      // -----------------------------
+      // Boot
+      // -----------------------------
+      (function boot() {
+        // Load UI state
+        const saved = loadState();
+        if (saved) applyUiStateObject(saved);
+        setOcrStatus("idle");
+        clearLastImage();
+        // Delay label init
+        delayLabelEl.textContent = String(clampNum(captureDelaySecEl.value, 0, 600, DEFAULTS.captureDelaySec));
+        // First render (no DB yet)
+        renderAll();
+        // Hydrate DB then render again
+        initDbAndHydrate().then(() => renderAll());
+        // Live ticking
+        function startLiveTimer() {
+          if (liveTimer) return;
+          liveTimer = setInterval(() => renderAll(), 1000);
+        }
+
+        function stopLiveTimer() {
+          if (!liveTimer) return;
+          clearInterval(liveTimer);
+          liveTimer = 0;
+        }
+        document.addEventListener("visibilitychange", () => {
+          if (document.hidden) stopLiveTimer();
+          else startLiveTimer();
+        });
+        startLiveTimer();
+      })();
+    })();
+  </script>
+</body>
+
+</html>
